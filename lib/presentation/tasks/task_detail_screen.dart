@@ -603,10 +603,20 @@ class TaskDetailScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
       try {
         // Call Cloud Function to cancel task
         final cloudFunctions = CloudFunctionsService();
         await cloudFunctions.cancelTask(task.id);
+
+        // Dismiss loading dialog
+        if (context.mounted) Navigator.of(context).pop();
 
         if (context.mounted) {
           NotificationService.showInAppNotification(
@@ -618,12 +628,18 @@ class TaskDetailScreen extends StatelessWidget {
           );
         }
       } on FirebaseFunctionsException catch (e) {
+        // Dismiss loading dialog
+        if (context.mounted) Navigator.of(context).pop();
+        
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Error: ${e.message ?? e.code}')),
           );
         }
       } catch (e) {
+        // Dismiss loading dialog
+        if (context.mounted) Navigator.of(context).pop();
+        
         if (context.mounted) {
           ScaffoldMessenger.of(
             context,

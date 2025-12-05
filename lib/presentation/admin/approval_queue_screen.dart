@@ -253,27 +253,9 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
                                             ? AppColors.neutral400
                                             : AppColors.neutral600,
                                   ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
-                            ),
-                          ),
-                          // Pending badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              'PENDING',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange.shade900,
-                              ),
                             ),
                           ),
                         ],
@@ -297,6 +279,26 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
                                   isDark
                                       ? AppColors.neutral500
                                       : AppColors.neutral400,
+                            ),
+                          ),
+                          const Spacer(),
+                          // Pending badge moved here for better visibility
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'PENDING',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade900,
+                              ),
                             ),
                           ),
                         ],

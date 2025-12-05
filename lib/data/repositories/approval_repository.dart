@@ -6,8 +6,10 @@ import '../services/cloud_functions_service.dart';
 class ApprovalRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
-  static const String _approvalCollection = 'approval_requests';
-  static const String _rescheduleLogCollection = 'reschedule_logs';
+  // Must match backend: Collections.APPROVAL_REQUESTS = 'approvalRequests'
+  static const String _approvalCollection = 'approvalRequests';
+  // Must match backend: Collections.RESCHEDULE_LOG = 'rescheduleLog'
+  static const String _rescheduleLogCollection = 'rescheduleLog';
 
   /// Create a reschedule request via Cloud Function
   Future<String> createRescheduleRequest({

@@ -47,13 +47,19 @@ class CalendarService {
       // Initialize Calendar API
       _calendarApi = calendar.CalendarApi(authenticatedClient);
 
-      // Save connection status to Firestore
-      await _firestore.collection('users').doc(userId).update({
+      // Save connection status and tokens to Firestore
+      // Backend uses these tokens to create calendar events for assigned tasks
+      final updateData = {
         'googleCalendarConnected': true,
         'googleAccessToken': auth.accessToken,
-      });
+        // idToken can be used as a fallback refresh mechanism
+        'googleRefreshToken': auth.idToken ?? auth.accessToken,
+      };
 
-      debugPrint('✅ Calendar: Connected successfully');
+      debugPrint('📅 Calendar: Saving tokens to Firestore for user $userId');
+      await _firestore.collection('users').doc(userId).update(updateData);
+
+      debugPrint('✅ Calendar: Connected successfully with tokens saved');
       return true;
     } catch (e) {
       debugPrint('❌ Calendar: Connection failed - $e');

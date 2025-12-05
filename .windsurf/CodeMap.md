@@ -713,6 +713,20 @@ await cloudFunctions.disconnectCalendar();
 - **Symptom**: "Looking up a deactivated widget's ancestor".
 - **Solution**: Check `mounted` before using `context` after an `await`.
 
+**Issue**: Firestore Collection Name Mismatch ⚠️ CRITICAL
+- **Symptom**: Data created by backend doesn't appear in Flutter queries.
+- **Cause**: Backend uses camelCase collection names (`approvalRequests`, `rescheduleLog`), but Flutter used snake_case.
+- **Solution**: Always use camelCase collection names to match backend: `approvalRequests`, `rescheduleLog` (NOT `approval_requests`, `reschedule_logs`).
+
+**Issue**: DateTime/Timestamp Type Mismatch in updateTask
+- **Symptom**: "DateTime is not subtype of Timestamp" error when editing task deadline.
+- **Cause**: `task_repository.dart` expected Timestamp but callers passed DateTime.
+- **Solution**: Handle both types in `updateTask` method using type checking.
+
+**Issue**: Button Text Overflow
+- **Symptom**: RenderFlex overflow on the right in `AppButton`.
+- **Solution**: Wrap Text in `Flexible` with `TextOverflow.ellipsis` in `app_button.dart`.
+
 ---
 
 ## 13. Debugging Helpers
@@ -808,7 +822,7 @@ await cloudFunctions.disconnectCalendar();
 | Service | File | Purpose | Key Methods |
 |---------|------|---------|-------------|
 | **FCMService** | **`data/services/fcm_service.dart`** ✅ | **Firebase Cloud Messaging** | **`initialize()`, `reset()`, `requestPermission()`** |
-| **CalendarService** | **`data/services/calendar_service.dart`** ✅ | **Google Calendar integration** | **`connect()`, `disconnect()`, `createTaskEvent()`, `updateTaskEvent()`, `deleteTaskEvent()`** |
+| **CalendarService** | **`data/services/calendar_service.dart`** ✅ | **Google Calendar integration** | **`connect()` (saves accessToken + refreshToken to Firestore), `disconnect()`, `createTaskEvent()`, `updateTaskEvent()`, `deleteTaskEvent()`** |
 | **NotificationService** | **`data/services/notification_service.dart`** ✅ | **Local notifications** | N/A |
 
 ### Repositories Catalog
@@ -819,7 +833,7 @@ await cloudFunctions.disconnectCalendar();
 | **UserRepository** | **`data/repositories/user_repository.dart`** ✅ | **Firestore user CRUD** | **`getUserStream()`, `getUser()`, `createUser()`, `updateUser()`** |
 | **TeamRepository** | **`data/repositories/team_repository.dart`** ✅ | **Firestore team CRUD** | **`getTeamStream()`, `createTeam()`, `updateTeam()`, `getAllTeamsStream()`** |
 | **TaskRepository** | **`data/repositories/task_repository.dart`** ✅ | **Firestore task CRUD** | **`createTask()`, `getUserTasksStream()`, `completeTask()`, `cancelTask()`, `getAllTasksStream()`** |
-| **ApprovalRepository** | **`data/repositories/approval_repository.dart`** ✅ | **Reschedule requests** | **`createRescheduleRequest()`, `approveRescheduleRequest()`, `rejectRescheduleRequest()`, `getAllRescheduleRequestsStream()`** |
+| **ApprovalRepository** | **`data/repositories/approval_repository.dart`** ✅ | **Reschedule requests** | **`createRescheduleRequest()`, `approveRescheduleRequest()`, `rejectRescheduleRequest()`, `getAllRescheduleRequestsStream()`, `getPendingRescheduleRequestsStream(taskCreatorId)` (queries by `payload.taskCreatorId`)** |
 | **NotificationRepository** | **`data/repositories/notification_repository.dart`** ✅ | **In-app notifications** | **`getUserNotificationsStream()`, `createNotification()`, `markAsRead()`, `getUnreadCountStream()`** |
 
 ### Common Code Patterns

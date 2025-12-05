@@ -104,14 +104,22 @@ class TaskRepository {
 
   /// Update task via Cloud Function
   Future<void> updateTask(String taskId, Map<String, dynamic> updates) async {
+    // Handle deadline - can be DateTime or Timestamp depending on caller
+    DateTime? deadlineValue;
+    if (updates['deadline'] != null) {
+      final deadline = updates['deadline'];
+      if (deadline is DateTime) {
+        deadlineValue = deadline;
+      } else if (deadline is Timestamp) {
+        deadlineValue = deadline.toDate();
+      }
+    }
+
     await _cloudFunctions.updateTask(
       taskId: taskId,
       title: updates['title'] as String?,
       subtitle: updates['subtitle'] as String?,
-      deadline:
-          updates['deadline'] != null
-              ? (updates['deadline'] as Timestamp).toDate()
-              : null,
+      deadline: deadlineValue,
     );
   }
 

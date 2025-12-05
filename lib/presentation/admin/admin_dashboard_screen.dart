@@ -205,6 +205,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                     AppRoutes.rescheduleApproval,
                                   ),
                                   badgeCount: pendingReschedules,
+                                  badgeColor: Colors.orange,
                                 ),
                                 const SizedBox(height: AppSpacing.md),
 

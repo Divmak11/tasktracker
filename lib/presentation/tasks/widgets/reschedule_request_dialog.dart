@@ -168,163 +168,169 @@ class _RescheduleRequestDialogState extends State<RescheduleRequestDialog> {
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Row(
-                children: [
-                  Icon(Icons.schedule, color: theme.colorScheme.primary),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Request Reschedule',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Current Deadline
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.neutral800 : AppColors.neutral100,
-                  borderRadius: BorderRadius.circular(AppRadius.small),
-                ),
-                child: Row(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
                   children: [
-                    Icon(
-                      Icons.event_busy,
-                      size: 20,
-                      color:
-                          isDark ? AppColors.neutral400 : AppColors.neutral600,
-                    ),
+                    Icon(Icons.schedule, color: theme.colorScheme.primary),
                     const SizedBox(width: AppSpacing.sm),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Current Deadline',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color:
-                                isDark
-                                    ? AppColors.neutral400
-                                    : AppColors.neutral600,
-                          ),
-                        ),
-                        Text(
-                          DateFormat(
-                            'MMM d, yyyy • h:mm a',
-                          ).format(widget.task.deadline),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                    Text(
+                      'Request Reschedule',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: AppSpacing.md),
+                const SizedBox(height: AppSpacing.lg),
 
-              // New Deadline Selection
-              Text(
-                'New Deadline',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _selectDate,
-                      icon: const Icon(Icons.calendar_today, size: 18),
-                      label: Text(
-                        _selectedDate != null
-                            ? DateFormat('MMM d, yyyy').format(_selectedDate!)
-                            : 'Select Date',
+                // Current Deadline
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.neutral800 : AppColors.neutral100,
+                    borderRadius: BorderRadius.circular(AppRadius.small),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.event_busy,
+                        size: 20,
+                        color:
+                            isDark
+                                ? AppColors.neutral400
+                                : AppColors.neutral600,
                       ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.md,
+                      const SizedBox(width: AppSpacing.sm),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Current Deadline',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color:
+                                  isDark
+                                      ? AppColors.neutral400
+                                      : AppColors.neutral600,
+                            ),
+                          ),
+                          Text(
+                            DateFormat(
+                              'MMM d, yyyy • h:mm a',
+                            ).format(widget.task.deadline),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+
+                // New Deadline Selection
+                Text(
+                  'New Deadline',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _selectDate,
+                        icon: const Icon(Icons.calendar_today, size: 18),
+                        label: Text(
+                          _selectedDate != null
+                              ? DateFormat('MMM d, yyyy').format(_selectedDate!)
+                              : 'Select Date',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.md,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _selectTime,
-                      icon: const Icon(Icons.access_time, size: 18),
-                      label: Text(
-                        _selectedTime != null
-                            ? _selectedTime!.format(context)
-                            : 'Select Time',
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.md,
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _selectTime,
+                        icon: const Icon(Icons.access_time, size: 18),
+                        label: Text(
+                          _selectedTime != null
+                              ? _selectedTime!.format(context)
+                              : 'Select Time',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.md,
+                          ),
                         ),
                       ),
+                    ),
+                  ],
+                ),
+
+                if (_selectedDate != null && !_isValidDeadline) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'New deadline must be later than current deadline',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.red,
                     ),
                   ),
                 ],
-              ),
 
-              if (_selectedDate != null && !_isValidDeadline) ...[
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  'New deadline must be later than current deadline',
-                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.red),
+                const SizedBox(height: AppSpacing.md),
+
+                // Reason Field
+                AppTextField(
+                  label: 'Reason (Optional)',
+                  hint: 'Why do you need more time?',
+                  controller: _reasonController,
+                  maxLines: 3,
+                  maxLength: 200,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+
+                // Action Buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed:
+                            _isSubmitting
+                                ? null
+                                : () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: AppButton(
+                        text: 'Submit Request',
+                        onPressed:
+                            _isSubmitting || !_isValidDeadline
+                                ? null
+                                : _submitRequest,
+                        isLoading: _isSubmitting,
+                      ),
+                    ),
+                  ],
                 ),
               ],
-
-              const SizedBox(height: AppSpacing.md),
-
-              // Reason Field
-              AppTextField(
-                label: 'Reason (Optional)',
-                hint: 'Why do you need more time?',
-                controller: _reasonController,
-                maxLines: 3,
-                maxLength: 200,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed:
-                          _isSubmitting
-                              ? null
-                              : () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: AppButton(
-                      text: 'Submit Request',
-                      onPressed:
-                          _isSubmitting || !_isValidDeadline
-                              ? null
-                              : _submitRequest,
-                      isLoading: _isSubmitting,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),

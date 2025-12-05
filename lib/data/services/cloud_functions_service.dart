@@ -123,7 +123,7 @@ class CloudFunctionsService {
       'subtitle': subtitle,
       'assignedType': assignedType,
       'assignedTo': assignedTo,
-      'deadline': deadline.toIso8601String(),
+      'deadline': deadline.toUtc().toIso8601String(),
     });
     return Map<String, dynamic>.from(result.data);
   }
@@ -140,7 +140,7 @@ class CloudFunctionsService {
 
     if (title != null) updates['title'] = title;
     if (subtitle != null) updates['subtitle'] = subtitle;
-    if (deadline != null) updates['deadline'] = deadline.toIso8601String();
+    if (deadline != null) updates['deadline'] = deadline.toUtc().toIso8601String();
 
     final result = await callable.call({'taskId': taskId, 'updates': updates});
     return Map<String, dynamic>.from(result.data);
@@ -174,7 +174,7 @@ class CloudFunctionsService {
     final callable = _functions.httpsCallable('reopenTask');
     final result = await callable.call({
       'taskId': taskId,
-      'newDeadline': newDeadline.toIso8601String(),
+      'newDeadline': newDeadline.toUtc().toIso8601String(),
     });
     return Map<String, dynamic>.from(result.data);
   }
@@ -192,7 +192,7 @@ class CloudFunctionsService {
     final callable = _functions.httpsCallable('requestReschedule');
     final result = await callable.call({
       'taskId': taskId,
-      'newDeadline': newDeadline.toIso8601String(),
+      'newDeadline': newDeadline.toUtc().toIso8601String(),
       if (reason != null) 'reason': reason,
     });
     return Map<String, dynamic>.from(result.data);

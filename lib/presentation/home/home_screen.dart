@@ -33,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen>
   // Cache streams to avoid recreating subscriptions on rebuild
   Stream<List<TaskModel>>? _ongoingTasksStream;
   Stream<List<TaskModel>>? _pastTasksStream;
+  Stream<List<TaskModel>>? _createdTasksStream;
   Stream<int>? _unreadCountStream;
   Stream<List<ApprovalRequestModel>>? _pendingReschedulesStream;
 
@@ -42,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   // Get or create cached streams
@@ -54,6 +55,11 @@ class _HomeScreenState extends State<HomeScreen>
   Stream<List<TaskModel>> _getPastStream(String userId) {
     _pastTasksStream ??= _taskRepository.getPastTasksStream(userId);
     return _pastTasksStream!;
+  }
+
+  Stream<List<TaskModel>> _getCreatedStream(String userId) {
+    _createdTasksStream ??= _taskRepository.getCreatedTasksStream(userId);
+    return _createdTasksStream!;
   }
 
   Stream<int> _getUnreadCountStream(String userId) {
@@ -181,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [Tab(text: 'Ongoing'), Tab(text: 'Past')],
+          tabs: const [Tab(text: 'Ongoing'), Tab(text: 'Past'), Tab(text: 'Created')],
         ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -205,6 +211,13 @@ class _HomeScreenState extends State<HomeScreen>
             context,
             stream: _getPastStream(currentUser.id),
             emptyMessage: 'No past tasks',
+          ),
+
+          // Created Tasks Tab
+          _buildTaskList(
+            context,
+            stream: _getCreatedStream(currentUser.id),
+            emptyMessage: 'No tasks created by you',
           ),
         ],
       ),

@@ -23,9 +23,9 @@ class AppButton extends StatelessWidget {
     this.icon,
     this.customColor,
   }) : assert(
-          type == AppButtonType.icon ? icon != null : true,
-          'Icon must be provided for icon button type',
-        );
+         type == AppButtonType.icon ? icon != null : true,
+         'Icon must be provided for icon button type',
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -33,41 +33,47 @@ class AppButton extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-    Widget buttonContent = isLoading
-        ? SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                type == AppButtonType.primary
-                    ? colorScheme.onPrimary
-                    : colorScheme.primary,
-              ),
-            ),
-          )
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (icon != null && type != AppButtonType.icon) ...[
-                Icon(icon, size: AppIconSize.small),
-                const SizedBox(width: AppSpacing.sm),
-              ],
-              if (type == AppButtonType.icon)
-                Icon(icon, size: AppIconSize.medium)
-              else
-                Text(
-                  text ?? '',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: type == AppButtonType.primary
-                        ? colorScheme.onPrimary
-                        : (customColor ?? colorScheme.primary),
-                  ),
+    Widget buttonContent =
+        isLoading
+            ? SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  type == AppButtonType.primary
+                      ? colorScheme.onPrimary
+                      : colorScheme.primary,
                 ),
-            ],
-          );
+              ),
+            )
+            : Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (icon != null && type != AppButtonType.icon) ...[
+                  Icon(icon, size: AppIconSize.small),
+                  const SizedBox(width: AppSpacing.sm),
+                ],
+                if (type == AppButtonType.icon)
+                  Icon(icon, size: AppIconSize.medium)
+                else
+                  Flexible(
+                    child: Text(
+                      text ?? '',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color:
+                            type == AppButtonType.primary
+                                ? colorScheme.onPrimary
+                                : (customColor ?? colorScheme.primary),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+              ],
+            );
 
     Widget button;
 
@@ -79,10 +85,7 @@ class AppButton extends StatelessWidget {
             backgroundColor: customColor ?? colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
             elevation: 0,
-            minimumSize: Size(
-              isFullWidth ? double.infinity : 0,
-              48,
-            ),
+            minimumSize: Size(isFullWidth ? double.infinity : 0, 48),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.small),
             ),
@@ -101,13 +104,11 @@ class AppButton extends StatelessWidget {
           style: OutlinedButton.styleFrom(
             foregroundColor: customColor ?? colorScheme.primary,
             side: BorderSide(
-              color: customColor ??
+              color:
+                  customColor ??
                   (isDark ? AppColors.neutral700 : AppColors.neutral200),
             ),
-            minimumSize: Size(
-              isFullWidth ? double.infinity : 0,
-              48,
-            ),
+            minimumSize: Size(isFullWidth ? double.infinity : 0, 48),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.small),
             ),
@@ -125,10 +126,7 @@ class AppButton extends StatelessWidget {
           onPressed: isLoading ? null : onPressed,
           style: TextButton.styleFrom(
             foregroundColor: customColor ?? colorScheme.primary,
-            minimumSize: Size(
-              isFullWidth ? double.infinity : 0,
-              48,
-            ),
+            minimumSize: Size(isFullWidth ? double.infinity : 0, 48),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.small),
             ),
@@ -147,9 +145,10 @@ class AppButton extends StatelessWidget {
           icon: buttonContent,
           style: IconButton.styleFrom(
             foregroundColor: customColor ?? colorScheme.primary,
-            backgroundColor: type == AppButtonType.primary
-                ? (customColor ?? colorScheme.primary)
-                : Colors.transparent,
+            backgroundColor:
+                type == AppButtonType.primary
+                    ? (customColor ?? colorScheme.primary)
+                    : Colors.transparent,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadius.small),
             ),
