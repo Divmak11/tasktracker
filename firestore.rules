@@ -1,0 +1,101 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superAdmin';
+    }
+    
+    function isTeamAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['superAdmin', 'teamAdmin'];
+    }
+    
+    function isActiveUser() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Anyone can read their own user document
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Super admins can read all users
+      allow read: if isSuperAdmin();
+      
+      // Users can create their own document on first sign-in
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Only super admins can update user role and status
+      allow update: if isSuperAdmin();
+      
+      // Users can update their own profile (but not role/status)
+      allow update: if isAuthenticated() && 
+                       request.auth.uid == userId &&
+                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status']);
+    }
+    
+    // Teams collection
+    match /teams/{teamId} {
+      // Active users and admins can read teams
+      allow read: if isActiveUser() || isTeamAdmin();
+      
+      // Team admins and super admins can create teams
+      allow create: if isTeamAdmin();
+      
+      // Team admin or super admin can update team
+      allow update: if isSuperAdmin() || 
+                       (isAuthenticated() && resource.data.adminId == request.auth.uid);
+      
+      // Only super admin can delete teams
+      allow delete: if isSuperAdmin();
+    }
+    
+    // Tasks collection
+    match /tasks/{taskId} {
+      // Users can read tasks assigned to them or created by them
+      allow read: if isActiveUser() && 
+                     (resource.data.assignedTo == request.auth.uid || 
+                      resource.data.createdBy == request.auth.uid);
+      
+      // Admins can read all tasks
+      allow read: if isTeamAdmin();
+      
+      // Team admins can create tasks
+      allow create: if isTeamAdmin();
+      
+      // Task creator or assignee can update tasks
+      allow update: if isActiveUser() && 
+                       (resource.data.createdBy == request.auth.uid || 
+                        resource.data.assignedTo == request.auth.uid);
+      
+      // Only creator or super admin can delete tasks
+      allow delete: if isSuperAdmin() || 
+                       (isAuthenticated() && resource.data.createdBy == request.auth.uid);
+    }
+
+    // Remarks collection
+    match /remarks/{remarkId} {
+      // Users can read remarks if they can read the parent task
+      // Note: We can't easily check parent task permissions in a single rule without extra reads,
+      // so we'll rely on the fact that the UI only shows remarks for tasks the user can see.
+      // For stricter security, we would need to duplicate access fields or use a function.
+      // For this MVP, we'll allow authenticated users to read/create remarks if they are active.
+      allow read: if isActiveUser();
+      
+      // Users can create remarks if they are active
+      allow create: if isActiveUser() && 
+                       request.resource.data.userId == request.auth.uid;
+                       
+      // Users can delete their own remarks (optional, but good for cleanup)
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
