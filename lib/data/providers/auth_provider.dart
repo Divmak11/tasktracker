@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../core/constants/env_config.dart';
 import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/user_repository.dart';
@@ -74,9 +74,8 @@ class AuthProvider with ChangeNotifier {
           return;
         }
 
-        // Check if user is super admin
-        final superAdminEmail = dotenv.env['SUPER_ADMIN_EMAIL'] ?? '';
-        final isSuperAdmin = firebaseUser.email == superAdminEmail;
+        // Check if user is super admin (supports multiple emails)
+        final isSuperAdmin = EnvConfig.isSuperAdminEmail(firebaseUser.email);
 
         // Create new user document
         final newUser = UserModel(

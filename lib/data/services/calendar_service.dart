@@ -25,6 +25,34 @@ class CalendarService {
   /// Check if calendar is connected
   bool get isConnected => _calendarApi != null;
 
+  /// Refresh and persist latest Google access token if user already connected.
+  /// This keeps the backend token fresh so calendar events continue working.
+  Future<bool> refreshAccessToken(String userId) async {
+    try {
+      // Attempt silent sign-in to reuse existing consent
+      _currentAccount = await _googleSignIn.signInSilently();
+
+      if (_currentAccount == null) {
+        return false;
+      }
+
+      final auth = await _currentAccount!.authentication;
+      if (auth.accessToken == null) {
+        return false;
+      }
+
+      await _firestore.collection('users').doc(userId).update({
+        'googleCalendarConnected': true,
+        'googleAccessToken': auth.accessToken,
+        if (auth.idToken != null) 'googleRefreshToken': auth.idToken,
+      });
+      return true;
+    } catch (e) {
+      debugPrint('❌ Calendar: Token refresh failed - $e');
+      return false;
+    }
+  }
+
   /// Connect to Google Calendar
   Future<bool> connect(String userId) async {
     try {

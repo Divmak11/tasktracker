@@ -4,6 +4,7 @@ class AppRoutes {
   static const String login = '/login';
   static const String signup = '/signup';
   static const String requestPending = '/request-pending';
+  static const String accessRevoked = '/access-revoked';
   static const String onboarding = '/onboarding';
 
   // Home & Tasks

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_routes.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -12,6 +13,7 @@ import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/notification_repository.dart';
 import '../../data/repositories/approval_repository.dart';
 import '../../data/providers/auth_provider.dart';
+import '../../data/services/calendar_service.dart';
 import 'widgets/task_card.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -29,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen>
   final NotificationRepository _notificationRepository =
       NotificationRepository();
   final ApprovalRepository _approvalRepository = ApprovalRepository();
+  final CalendarService _calendarService = CalendarService();
 
   // Cache streams to avoid recreating subscriptions on rebuild
   Stream<List<TaskModel>>? _ongoingTasksStream;
@@ -40,10 +43,95 @@ class _HomeScreenState extends State<HomeScreen>
   // Cache user data to avoid N+1 queries
   final Map<String, UserModel?> _userCache = {};
 
+  static const String _calendarGuideShownKey = 'calendar_guide_shown';
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    // Show calendar guide dialog on first visit
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showCalendarGuideIfNeeded();
+      _refreshCalendarTokenIfNeeded();
+    });
+  }
+
+  Future<void> _refreshCalendarTokenIfNeeded() async {
+    final authProvider = context.read<AuthProvider>();
+    final currentUser = authProvider.currentUser;
+    if (currentUser?.googleCalendarConnected == true) {
+      await _calendarService.refreshAccessToken(currentUser!.id);
+    }
+  }
+
+  Future<void> _showCalendarGuideIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasShown = prefs.getBool(_calendarGuideShownKey) ?? false;
+
+    if (hasShown || !mounted) return;
+
+    // Check if user already has calendar connected
+    final authProvider = context.read<AuthProvider>();
+    final currentUser = authProvider.currentUser;
+    if (currentUser?.googleCalendarConnected == true) {
+      // Already connected, mark as shown and skip
+      await prefs.setBool(_calendarGuideShownKey, true);
+      return;
+    }
+
+    if (!mounted) return;
+
+    // Show the guide dialog
+    if (mounted) {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (context) => AlertDialog(
+              icon: Icon(
+                Icons.calendar_month,
+                size: 48,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: const Text('Connect Your Calendar'),
+              content: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Stay organized by syncing your tasks with Google Calendar!',
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    '• Get reminders for task deadlines\n'
+                    '• See tasks in your calendar app\n'
+                    '• Never miss an important task',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Maybe Later'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push(AppRoutes.settings);
+                  },
+                  icon: const Icon(Icons.settings),
+                  label: const Text('Go to Settings'),
+                ),
+              ],
+            ),
+      );
+
+      // Mark as shown regardless of user choice
+      await prefs.setBool(_calendarGuideShownKey, true);
+    }
   }
 
   // Get or create cached streams
@@ -187,7 +275,11 @@ class _HomeScreenState extends State<HomeScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [Tab(text: 'Ongoing'), Tab(text: 'Past'), Tab(text: 'Created')],
+          tabs: const [
+            Tab(text: 'Ongoing'),
+            Tab(text: 'Past'),
+            Tab(text: 'Created'),
+          ],
         ),
       ),
       floatingActionButton: FloatingActionButton(

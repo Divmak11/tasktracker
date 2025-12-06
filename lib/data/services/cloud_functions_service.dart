@@ -54,6 +54,13 @@ class CloudFunctionsService {
     return Map<String, dynamic>.from(result.data);
   }
 
+  /// Restore a revoked user's access (Super Admin only)
+  Future<Map<String, dynamic>> restoreUserAccess(String userId) async {
+    final callable = _functions.httpsCallable('restoreUserAccess');
+    final result = await callable.call({'userId': userId});
+    return Map<String, dynamic>.from(result.data);
+  }
+
   /// Permanently delete a user and cleanup related data (Super Admin only)
   Future<Map<String, dynamic>> deleteUser(String userId) async {
     final callable = _functions.httpsCallable('deleteUser');
@@ -140,7 +147,8 @@ class CloudFunctionsService {
 
     if (title != null) updates['title'] = title;
     if (subtitle != null) updates['subtitle'] = subtitle;
-    if (deadline != null) updates['deadline'] = deadline.toUtc().toIso8601String();
+    if (deadline != null)
+      updates['deadline'] = deadline.toUtc().toIso8601String();
 
     final result = await callable.call({'taskId': taskId, 'updates': updates});
     return Map<String, dynamic>.from(result.data);

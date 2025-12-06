@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../presentation/auth/login_screen.dart';
 import '../../presentation/auth/signup_screen.dart';
 import '../../presentation/auth/request_pending_screen.dart';
+import '../../presentation/auth/access_revoked_screen.dart';
 import '../../presentation/auth/onboarding_screen.dart';
 import '../../presentation/navigation/main_layout.dart';
 import '../../presentation/admin/admin_dashboard_screen.dart';
@@ -50,6 +51,8 @@ class AppRouter {
         final isOnLoginPage = state.matchedLocation == AppRoutes.login;
         final isOnPendingPage =
             state.matchedLocation == AppRoutes.requestPending;
+        final isOnRevokedPage =
+            state.matchedLocation == AppRoutes.accessRevoked;
 
         // Not authenticated -> redirect to login
         if (!isAuthenticated) {
@@ -67,13 +70,12 @@ class AppRouter {
         }
 
         if (currentUser.status == UserStatus.revoked) {
-          // Force logout if revoked
-          authProvider.logout();
-          return AppRoutes.login;
+          // Redirect to access revoked page instead of force logout
+          return isOnRevokedPage ? null : AppRoutes.accessRevoked;
         }
 
-        // User is active - redirect from login/pending to appropriate home
-        if (isOnLoginPage || isOnPendingPage) {
+        // User is active - redirect from login/pending/revoked to appropriate home
+        if (isOnLoginPage || isOnPendingPage || isOnRevokedPage) {
           // Check if we should show onboarding (could add a flag in user doc)
           if (currentUser.role == UserRole.superAdmin) {
             return AppRoutes.adminDashboard;
@@ -96,6 +98,10 @@ class AppRouter {
         GoRoute(
           path: AppRoutes.requestPending,
           builder: (context, state) => const RequestPendingScreen(),
+        ),
+        GoRoute(
+          path: AppRoutes.accessRevoked,
+          builder: (context, state) => const AccessRevokedScreen(),
         ),
         GoRoute(
           path: AppRoutes.onboarding,

@@ -27,6 +27,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _subtitleController = TextEditingController();
+  final _memberSearchController = TextEditingController();
   final _cloudFunctions = CloudFunctionsService();
   final _userRepository = UserRepository();
   final _teamRepository = TeamRepository();
@@ -35,12 +36,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   TimeOfDay? _selectedTime;
   TaskAssignedType _assignedType = TaskAssignedType.member;
   String? _selectedAssigneeId;
+  String? _selectedAssigneeName;
   bool _isLoading = false;
 
   @override
   void dispose() {
     _titleController.dispose();
     _subtitleController.dispose();
+    _memberSearchController.dispose();
     super.dispose();
   }
 
@@ -223,6 +226,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           setState(() {
                             _assignedType = newSelection.first;
                             _selectedAssigneeId = null; // Reset selection
+                            _selectedAssigneeName = null;
+                            _memberSearchController.clear();
                           });
                         },
                       ),
@@ -370,6 +375,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Widget _buildMemberDropdown() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return StreamBuilder<List<UserModel>>(
       stream: _userRepository.getAllUsersStream(),
       builder: (context, snapshot) {
@@ -378,30 +386,151 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
 
         if (!snapshot.hasData) {
-          return const CircularProgressIndicator();
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(AppSpacing.md),
+              child: CircularProgressIndicator(),
+            ),
+          );
         }
 
         final users =
             snapshot.data!.where((u) => u.status == UserStatus.active).toList();
 
-        return DropdownButtonFormField<String>(
-          value: _selectedAssigneeId,
-          decoration: InputDecoration(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppRadius.medium),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.sm,
-            ),
-          ),
-          hint: const Text('Select assignee'),
-          items:
-              users.map((user) {
-                return DropdownMenuItem(value: user.id, child: Text(user.name));
-              }).toList(),
-          onChanged: (value) {
-            setState(() => _selectedAssigneeId = value);
+        return Autocomplete<UserModel>(
+          optionsBuilder: (TextEditingValue textEditingValue) {
+            if (textEditingValue.text.isEmpty) {
+              // Show first 20 users when field is empty but focused
+              return users.take(20);
+            }
+            final query = textEditingValue.text.toLowerCase();
+            return users
+                .where((user) {
+                  return user.name.toLowerCase().contains(query) ||
+                      user.email.toLowerCase().contains(query);
+                })
+                .take(50); // Limit results for performance
+          },
+          displayStringForOption: (UserModel user) => user.name,
+          fieldViewBuilder: (
+            BuildContext context,
+            TextEditingController fieldController,
+            FocusNode focusNode,
+            VoidCallback onFieldSubmitted,
+          ) {
+            // Sync the field controller with selected value
+            if (_selectedAssigneeName != null && fieldController.text.isEmpty) {
+              fieldController.text = _selectedAssigneeName!;
+            }
+            return TextField(
+              controller: fieldController,
+              focusNode:
+                  focusNode, // Must use Autocomplete's focusNode for dropdown to work
+              decoration: InputDecoration(
+                hintText: 'Search by name or email...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon:
+                    _selectedAssigneeId != null
+                        ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            setState(() {
+                              _selectedAssigneeId = null;
+                              _selectedAssigneeName = null;
+                              fieldController.clear();
+                            });
+                          },
+                        )
+                        : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.medium),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+              ),
+            );
+          },
+          optionsViewBuilder: (
+            BuildContext context,
+            AutocompleteOnSelected<UserModel> onSelected,
+            Iterable<UserModel> options,
+          ) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(AppRadius.medium),
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 250),
+                  width:
+                      MediaQuery.of(context).size.width -
+                      (AppSpacing.screenPaddingMobile * 2),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.neutral800 : Colors.white,
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                    border: Border.all(
+                      color:
+                          isDark ? AppColors.neutral700 : AppColors.neutral200,
+                    ),
+                  ),
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final user = options.elementAt(index);
+                      final isSelected = _selectedAssigneeId == user.id;
+                      return ListTile(
+                        dense: true,
+                        selected: isSelected,
+                        selectedTileColor: theme.colorScheme.primaryContainer
+                            .withValues(alpha: 0.3),
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: theme.colorScheme.primaryContainer,
+                          child: Text(
+                            user.name.isNotEmpty
+                                ? user.name[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          user.name,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight:
+                                isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: Text(
+                          user.email,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color:
+                                isDark
+                                    ? AppColors.neutral400
+                                    : AppColors.neutral600,
+                          ),
+                        ),
+                        onTap: () => onSelected(user),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+          onSelected: (UserModel user) {
+            setState(() {
+              _selectedAssigneeId = user.id;
+              _selectedAssigneeName = user.name;
+            });
           },
         );
       },

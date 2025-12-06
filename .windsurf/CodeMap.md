@@ -1,7 +1,7 @@
 # TODO Planner - CodeMap & Technical Reference
 
-**Version:** 1.0.0  
-**Last Updated:** 2025-11-24  
+**Version:** 1.0.1  
+**Last Updated:** 2025-12-06  
 **Project Version:** 1.0.0+1
 
 ---
@@ -317,6 +317,7 @@ MultiProvider(
 **Auth Module** (`presentation/auth/`):
 - `LoginScreen` - Social login (Google/Apple)
 - `RequestPendingScreen` - Approval waiting state
+- `AccessRevokedScreen` - **NEW** - Displayed when user access is revoked by Super Admin
 - `OnboardingScreen` - 3-step PageView flow
 
 **Admin Module** (`presentation/admin/`):
@@ -344,7 +345,7 @@ MultiProvider(
 - Methods:
   ```dart
   static bool canCreateTask(UserRole? role)        // All users
-  static bool canCreateTeam(UserRole? role)        // Super Admin only
+  static bool canCreateTeam(UserRole? role)        // Super Admin and Team Admin
   static bool canApproveUsers(UserRole? role)      // Super Admin only
   static bool canManageUsers(UserRole? role)       // Super Admin only
   static bool canPromoteTeamAdmin(UserRole? role)  // Super Admin only
@@ -578,6 +579,7 @@ MainLayout (ShellRoute)
 |-------|--------|--------|
 | `/login` | LoginScreen | Public |
 | `/request-pending` | RequestPendingScreen | Authenticated (pending) |
+| `/access-revoked` | AccessRevokedScreen | Authenticated (revoked) |
 | `/onboarding` | OnboardingScreen | Authenticated (first login) |
 | `/` or `/admin` | AdminDashboardScreen | Admin only |
 | `/admin/teams` | TeamManagementScreen | Admin only |
@@ -986,7 +988,7 @@ final textColor = isDark ? AppColors.neutral300 : AppColors.neutral700;
 - [x] **Backend**: Set `app.super_admin_email` to `div.makar@gmail.com`.
 
 ### 🔐 Environment Variables
-- [x] **`.env`**: Update `SUPER_ADMIN_EMAIL`.
+- [x] **`.env`**: Update `SUPER_ADMIN_EMAILS` (comma-separated for multiple admins).
 - [ ] **`.env`**: Set `ENV=production` before app store release.
 
 ### 📦 Bundle Identifier
@@ -1135,6 +1137,62 @@ final textColor = isDark ? AppColors.neutral300 : AppColors.neutral700;
   - Team selection only mentions team in email, does NOT auto-assign
   - Auto-approval handled entirely by backend auth trigger
   - Email sending requires backend SendGrid configuration
+
+### 🔧 Multi Super Admin Support (Dec 6, 2025)
+- **EnvConfig Updated**: `lib/core/constants/env_config.dart`
+  - Supports comma-separated emails in `SUPER_ADMIN_EMAILS`
+  - New methods: `superAdminEmails` (List), `isSuperAdminEmail(email)` (bool)
+  - Backward compatible with legacy `SUPER_ADMIN_EMAIL`
+- **Current Super Admins**: `div.makar@gmail.com`, `ritesh@assomac.in`
+
+### 🔐 Team Creation Permission Update (Dec 6, 2025)
+- **Change**: `canCreateTeam` now allows both Super Admin AND Team Admin
+- **File Modified**: `lib/core/utils/permission_utils.dart`
+- **Impact**: Team Admins can now create teams via Team Management FAB
+
+### 🔍 Searchable Assignee Dropdown (Dec 6, 2025)
+- **Feature**: Create Task screen now has searchable assignee selection
+- **File Modified**: `lib/presentation/tasks/create_task_screen.dart`
+- **Implementation**: Uses Flutter `Autocomplete` widget with:
+  - Search by name or email
+  - Displays first 20 users when empty, limits to 50 filtered results
+  - Custom options view with avatar, name, and email
+  - Clear button to reset selection
+- **Performance**: Optimized for 100+ users
+
+### 🚫 Access Revoked Screen (Dec 6, 2025)
+- **New Screen**: `lib/presentation/auth/access_revoked_screen.dart`
+- **Route**: `/access-revoked` (`AppRoutes.accessRevoked`)
+- **Behavior**: When user's status is `revoked`:
+  - Shows Access Revoked screen instead of force logout
+  - Displays message to contact Super Admin
+  - Logout button available
+- **Files Modified**:
+  - `lib/core/constants/app_routes.dart` - Added route constant
+  - `lib/core/router/app_router.dart` - Added route and redirect logic
+
+### 👤 User Management Cloud Functions Integration (Dec 6, 2025)
+- **Change**: User Management screen now uses Cloud Functions instead of direct Firestore updates
+- **Benefits**:
+  - Role changes trigger notifications to affected users
+  - Firebase Auth custom claims are properly updated
+  - Team admin cleanup runs when demoting team admins
+  - Firebase Auth account is disabled/re-enabled on revoke/restore
+- **Files Modified**:
+  - `lib/presentation/admin/user_management_screen.dart` - Uses `CloudFunctionsService` for:
+    - `updateUserRole()` - Role promotion/demotion with notification
+    - `revokeUserAccess()` - Access revocation with notification + Auth disable
+    - `restoreUserAccess()` - Access restoration with notification + Auth re-enable
+  - `lib/data/services/cloud_functions_service.dart` - Added `restoreUserAccess()` method
+- **Backend Updates Required**:
+  - `src/triggers/authTriggers.ts` - Supports comma-separated super admin emails
+  - `src/controllers/userController.ts` - Added `restoreUserAccess` function
+  - `src/index.ts` - Exports `restoreUserAccess`
+- **Firebase Config Required**:
+  ```bash
+  firebase functions:config:set app.super_admin_email="div.makar@gmail.com,ritesh@assomac.in"
+  firebase deploy --only functions
+  ```
 
 **Top-Level Rules**:
 1. **Absolute Paths**: Always use absolute paths for file operations.

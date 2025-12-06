@@ -5,6 +5,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/user_repository.dart';
+import '../../data/services/cloud_functions_service.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/providers/auth_provider.dart';
 import '../common/cards/app_card.dart';
@@ -18,6 +19,7 @@ class UserManagementScreen extends StatefulWidget {
 
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final UserRepository _userRepository = UserRepository();
+  final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
   UserRole? _selectedFilter;
 
   Future<void> _showChangeRoleDialog(UserModel user) async {
@@ -94,11 +96,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
       if (confirmed == true && mounted) {
         try {
-          await _userRepository.updateUser(user.id, {
-            'role': result.name,
-            'roleChangedBy': context.read<AuthProvider>().currentUser?.id,
-            'roleChangedAt': DateTime.now().toIso8601String(),
-          });
+          // Use Cloud Function to update role (handles notifications & custom claims)
+          await _cloudFunctions.updateUserRole(user.id, result.name);
 
           if (mounted) {
             NotificationService.showInAppNotification(
@@ -146,11 +145,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
     if (confirm == true && mounted) {
       try {
-        await _userRepository.updateUser(user.id, {
-          'status': UserStatus.revoked.name,
-          'revokedBy': context.read<AuthProvider>().currentUser?.id,
-          'revokedAt': DateTime.now().toIso8601String(),
-        });
+        // Use Cloud Function to revoke access (handles notification & Firebase Auth disable)
+        await _cloudFunctions.revokeUserAccess(user.id);
 
         if (mounted) {
           NotificationService.showInAppNotification(
@@ -196,11 +192,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
     if (confirm == true && mounted) {
       try {
-        await _userRepository.updateUser(user.id, {
-          'status': UserStatus.active.name,
-          'restoredBy': context.read<AuthProvider>().currentUser?.id,
-          'restoredAt': DateTime.now().toIso8601String(),
-        });
+        // Use Cloud Function to restore access (handles notification & Firebase Auth re-enable)
+        await _cloudFunctions.restoreUserAccess(user.id);
 
         if (mounted) {
           NotificationService.showInAppNotification(

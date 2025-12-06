@@ -5,13 +5,31 @@ enum UserRole {
   teamAdmin,
   member;
 
-  String toJson() => name;
+  /// Serialize to snake_case to match backend constants
+  String toJson() {
+    switch (this) {
+      case UserRole.superAdmin:
+        return 'super_admin';
+      case UserRole.teamAdmin:
+        return 'team_admin';
+      case UserRole.member:
+        return 'member';
+    }
+  }
 
+  /// Deserialize from snake_case (backend) or camelCase (legacy app data)
   static UserRole fromJson(String value) {
-    return UserRole.values.firstWhere(
-      (role) => role.name == value,
-      orElse: () => UserRole.member,
-    );
+    switch (value) {
+      case 'super_admin':
+      case 'superAdmin': // Legacy support
+        return UserRole.superAdmin;
+      case 'team_admin':
+      case 'teamAdmin': // Legacy support
+        return UserRole.teamAdmin;
+      case 'member':
+      default:
+        return UserRole.member;
+    }
   }
 }
 
