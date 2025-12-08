@@ -137,41 +137,45 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
   bool _isProcessing = false;
 
   Future<void> _handleApprove() async {
-    setState(() => _isProcessing = true);
-    try {
-      await _approvalRepository.approveRescheduleRequest(
-        requestId: widget.request.id,
-        approverId: widget.approverId,
-        taskId: widget.request.targetId,
-        newDeadline: widget.request.newDeadline!,
-      );
+    // OPTIMISTIC UPDATE: Show success immediately
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Reschedule approved'),
+        backgroundColor: Colors.green,
+      ),
+    );
 
-      // Create log entry
-      await _approvalRepository.createRescheduleLog(
+    // Fire in background - Firestore stream removes this card automatically on server update
+    _approvalRepository.approveRescheduleRequest(
+      requestId: widget.request.id,
+      approverId: widget.approverId,
+      taskId: widget.request.targetId,
+      newDeadline: widget.request.newDeadline!,
+    ).then((_) {
+      // Create log entry after approval succeeds
+      return _approvalRepository.createRescheduleLog(
         taskId: widget.request.targetId,
         requestedBy: widget.request.requesterId,
         originalDeadline: widget.request.originalDeadline!,
         newDeadline: widget.request.newDeadline!,
         approvedBy: widget.approverId,
       );
-
+    }).catchError((error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reschedule approved'),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: Text('Failed to sync: $error'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: _handleApprove,
+            ),
           ),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
+    });
   }
 
   Future<void> _handleReject() async {
@@ -199,30 +203,34 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
 
     if (confirmed != true) return;
 
-    setState(() => _isProcessing = true);
-    try {
-      await _approvalRepository.rejectRescheduleRequest(
-        requestId: widget.request.id,
-        approverId: widget.approverId,
-      );
+    // OPTIMISTIC UPDATE: Show success immediately
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Reschedule rejected'),
+        backgroundColor: Colors.orange,
+      ),
+    );
 
+    // Fire in background - Firestore stream removes this card automatically
+    _approvalRepository.rejectRescheduleRequest(
+      requestId: widget.request.id,
+      approverId: widget.approverId,
+    ).catchError((error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reschedule rejected'),
-            backgroundColor: Colors.orange,
+          SnackBar(
+            content: Text('Failed to sync: $error'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: _handleReject,
+            ),
           ),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
+    });
   }
 
   @override

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -7,7 +6,6 @@ import '../../data/models/user_model.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/services/cloud_functions_service.dart';
 import '../../data/services/notification_service.dart';
-import '../../data/providers/auth_provider.dart';
 import '../common/cards/app_card.dart';
 
 class UserManagementScreen extends StatefulWidget {
@@ -95,29 +93,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       );
 
       if (confirmed == true && mounted) {
-        try {
-          // Use Cloud Function to update role (handles notifications & custom claims)
-          await _cloudFunctions.updateUserRole(user.id, result.name);
+        // OPTIMISTIC UPDATE: Show success immediately
+        NotificationService.showInAppNotification(
+          context,
+          title: 'Role Updated',
+          message: '${user.name} is now a ${_getRoleText(result)}',
+          icon: Icons.verified_user,
+          backgroundColor: Colors.green.shade700,
+        );
 
-          if (mounted) {
-            NotificationService.showInAppNotification(
-              context,
-              title: 'Role Updated',
-              message: '${user.name} is now a ${_getRoleText(result)}',
-              icon: Icons.verified_user,
-              backgroundColor: Colors.green.shade700,
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error updating role: $e'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-        }
+        // Fire cloud function in background
+        _cloudFunctions.updateUserRole(user.id, result.toJson()).catchError((error) {
+          debugPrint('Failed to update role: $error');
+          return <String, dynamic>{};
+        });
       }
     }
   }
@@ -144,29 +133,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
 
     if (confirm == true && mounted) {
-      try {
-        // Use Cloud Function to revoke access (handles notification & Firebase Auth disable)
-        await _cloudFunctions.revokeUserAccess(user.id);
+      // OPTIMISTIC UPDATE: Show success immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Access Revoked',
+        message: 'Access for ${user.name} has been revoked',
+        icon: Icons.block,
+        backgroundColor: Colors.orange.shade700,
+      );
 
-        if (mounted) {
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Access Revoked',
-            message: 'Access for ${user.name} has been revoked',
-            icon: Icons.block,
-            backgroundColor: Colors.orange.shade700,
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error revoking access: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      // Fire cloud function in background
+      _cloudFunctions.revokeUserAccess(user.id).catchError((error) {
+        debugPrint('Failed to revoke access: $error');
+        return <String, dynamic>{};
+      });
     }
   }
 
@@ -191,29 +171,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
 
     if (confirm == true && mounted) {
-      try {
-        // Use Cloud Function to restore access (handles notification & Firebase Auth re-enable)
-        await _cloudFunctions.restoreUserAccess(user.id);
+      // OPTIMISTIC UPDATE: Show success immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Access Restored',
+        message: 'Access for ${user.name} has been restored',
+        icon: Icons.check_circle,
+        backgroundColor: Colors.green.shade700,
+      );
 
-        if (mounted) {
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Access Restored',
-            message: 'Access for ${user.name} has been restored',
-            icon: Icons.check_circle,
-            backgroundColor: Colors.green.shade700,
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error restoring access: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      // Fire cloud function in background
+      _cloudFunctions.restoreUserAccess(user.id).catchError((error) {
+        debugPrint('Failed to restore access: $error');
+        return <String, dynamic>{};
+      });
     }
   }
 

@@ -54,6 +54,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
       final invitesData = results[0] as Map<String, dynamic>;
       final teamsData = results[1] as List<TeamModel>;
 
+      if (!mounted) return;
       setState(() {
         _invites =
             (invitesData['invites'] as List<dynamic>)
@@ -63,50 +64,56 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to load data: $e')));
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load data: $e')));
     }
   }
 
   Future<void> _sendInvite() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final email = _emailController.text.trim();
+    final teamId = _selectedTeamId;
+
+    // Show loading state
     setState(() => _isSending = true);
+
     try {
+      // Wait for the network call to complete
       await _cloudFunctions.sendInvite(
-        email: _emailController.text.trim(),
-        teamId: _selectedTeamId,
+        email: email,
+        teamId: teamId,
       );
 
-      _emailController.clear();
-      setState(() {
-        _selectedTeamId = null;
-        _isSending = false;
-      });
-
+      // Only show success after network call succeeds
       if (mounted) {
+        _emailController.clear();
+        setState(() {
+          _selectedTeamId = null;
+          _isSending = false;
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Invite sent successfully!'),
             backgroundColor: Colors.green,
           ),
         );
+        
+        _loadData();
       }
-
-      await _loadData();
-    } catch (e) {
-      setState(() => _isSending = false);
+    } catch (error) {
+      // Show error message
       if (mounted) {
+        setState(() => _isSending = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Failed to send invite: ${e.toString().replaceAll('Exception: ', '')}',
-            ),
+            content: Text('Failed to send invite: $error'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -115,7 +122,10 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
 
   Future<void> _resendInvite(InviteModel invite) async {
     try {
+      // Wait for the network call to complete
       await _cloudFunctions.resendInvite(invite.id);
+
+      // Only show success after network call succeeds
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -123,13 +133,16 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
             backgroundColor: Colors.green,
           ),
         );
+        _loadData();
       }
-      await _loadData();
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to resend: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to resend invite: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -159,18 +172,24 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
     if (confirmed != true) return;
 
     try {
+      // Wait for the network call to complete
       await _cloudFunctions.cancelInvite(invite.id);
+
+      // Only show success after network call succeeds
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Invite cancelled')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invite cancelled')),
+        );
+        _loadData();
       }
-      await _loadData();
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to cancel: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to cancel invite: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -207,61 +226,37 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Card
+            // Simple info banner instead of large gradient header
             Container(
-              padding: const EdgeInsets.all(AppSpacing.lg),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.colorScheme.primary,
-                    theme.colorScheme.primary.withValues(alpha: 0.8),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(AppRadius.medium),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
                 ),
-                borderRadius: BorderRadius.circular(AppRadius.large),
               ),
               child: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(AppRadius.medium),
-                    ),
-                    child: const Icon(
-                      Icons.person_add_outlined,
-                      color: Colors.white,
-                      size: 32,
-                    ),
+                  Icon(
+                    Icons.info_outline,
+                    color: theme.colorScheme.primary,
+                    size: 20,
                   ),
-                  const SizedBox(width: AppSpacing.md),
+                  const SizedBox(width: AppSpacing.sm),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Invite New Users',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          'Send email invitations to new team members',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.9),
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'Invited users will receive an email with download link.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: AppSpacing.xl),
+            const SizedBox(height: AppSpacing.lg),
 
             // Email Input
             Text(
@@ -305,6 +300,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
               ),
               child: DropdownButtonFormField<String>(
                 value: _selectedTeamId,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: AppSpacing.md,
@@ -313,7 +309,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
                   border: InputBorder.none,
                   prefixIcon: Icon(Icons.group_outlined),
                 ),
-                hint: const Text('Select a team to mention in email'),
+                hint: const Text('Select a team'),
                 items: [
                   const DropdownMenuItem<String>(
                     value: null,
@@ -334,41 +330,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
 
             const SizedBox(height: AppSpacing.lg),
 
-            // Info Card
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(
-                  alpha: 0.3,
-                ),
-                borderRadius: BorderRadius.circular(AppRadius.medium),
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: theme.colorScheme.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      'Invited users will receive an email with a Play Store download link. When they sign up with the same email, they will be auto-approved as members. Team assignment can be done later.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.8,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: AppSpacing.xl),
+            const SizedBox(height: AppSpacing.lg),
 
             // Send Button
             AppButton(

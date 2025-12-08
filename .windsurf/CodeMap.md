@@ -198,6 +198,59 @@ class TaskRepository {
 - Repositories catch Firebase exceptions and throw custom `AppException`.
 - UI catches `AppException` and shows `SnackBar` or `AlertDialog`.
 
+**Optimistic Updates Pattern** (REQUIRED for all Cloud Function calls):
+All network operations that update UI state should follow the optimistic update pattern for instant responsiveness:
+
+```dart
+// ❌ BLOCKING PATTERN (DON'T USE)
+Future<void> _handleAction() async {
+  setState(() => _isLoading = true);
+  try {
+    await _cloudFunctions.someAction();  // Blocks UI
+    if (mounted) showSuccessNotification();
+  } catch (e) {
+    if (mounted) showErrorSnackbar(e);
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
+
+// ✅ OPTIMISTIC PATTERN (USE THIS)
+Future<void> _handleAction() async {
+  // 1. Show success immediately (optimistic)
+  NotificationService.showInAppNotification(context, title: 'Success', ...);
+  
+  // 2. Navigate away if applicable
+  context.pop();  // or Navigator.of(context).pop()
+  
+  // 3. Fire cloud function in background (don't await)
+  _cloudFunctions.someAction().catchError((error) {
+    debugPrint('Failed to sync: $error');
+    // Firestore streams auto-correct UI if server fails
+    return <String, dynamic>{};  // Required return type
+  });
+}
+```
+
+**Key Principles**:
+1. **UI First**: Update UI immediately, sync in background
+2. **Firestore Streams**: Real-time streams auto-correct if server update fails
+3. **Error Handling**: Show retry snackbar for critical failures
+4. **Return Types**: Always return a value in `catchError` to satisfy Future type
+
+**Files Using This Pattern**:
+- `task_detail_screen.dart` (complete/cancel)
+- `add_remark_dialog.dart` (addRemark)
+- `create_task_screen.dart` (assignTask)
+- `edit_task_screen.dart` (updateTask)
+- `reschedule_request_dialog.dart` (requestReschedule)
+- `reschedule_approval_screen.dart` (approve/reject)
+- `approval_queue_screen.dart` (approve/reject user)
+- `user_management_screen.dart` (updateRole/revoke/restore)
+- `invite_users_screen.dart` (send/resend/cancel invite)
+- `profile_edit_screen.dart` (updateProfile)
+- `notification_preferences_screen.dart` (updatePreferences)
+
 ---
 
 ## 8. State Management

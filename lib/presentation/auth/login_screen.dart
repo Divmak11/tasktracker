@@ -21,72 +21,165 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final size = MediaQuery.of(context).size;
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Logo & Title
-                Icon(
-                  Icons.check_circle_outline_rounded,
-                  size: 64,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  AppStrings.appName,
-                  style: theme.textTheme.headlineMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Welcome! Please sign in to continue.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppColors.neutral400 : AppColors.neutral600,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.xxl),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isDark
+                ? [
+                    AppColors.neutral900,
+                    theme.colorScheme.primary.withValues(alpha: 0.2),
+                  ]
+                : [
+                    theme.colorScheme.primary.withValues(alpha: 0.05),
+                    Colors.white,
+                  ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(height: AppSpacing.xxl),
 
-                // Google Sign-In Button
-                AppButton(
-                  text: 'Continue with Google',
-                  onPressed: _isLoading ? () {} : _handleGoogleSignIn,
-                  type: AppButtonType.secondary,
-                  icon: Icons.g_mobiledata_rounded,
-                  isLoading: _isLoading,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                
-                // Apple Sign-In Button (iOS/macOS only)
-                if (Platform.isIOS || Platform.isMacOS)
+                  // Logo & Branding Section
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.check_circle_outline_rounded,
+                      size: 56,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  // App Name
+                  Text(
+                    AppStrings.appName,
+                    style: theme.textTheme.headlineLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+
+                  // Tagline
+                  Text(
+                    'Organize. Delegate. Complete.',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+
+                  const SizedBox(height: AppSpacing.xxl * 2),
+
+                  // Feature Highlights
+                  _buildFeatureRow(
+                    icon: Icons.group_outlined,
+                    text: 'Team collaboration',
+                    theme: theme,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildFeatureRow(
+                    icon: Icons.calendar_today_outlined,
+                    text: 'Google Calendar sync',
+                    theme: theme,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildFeatureRow(
+                    icon: Icons.notifications_outlined,
+                    text: 'Smart reminders',
+                    theme: theme,
+                  ),
+
+                  const SizedBox(height: AppSpacing.xxl * 2),
+
+                  // Sign-In Buttons
                   AppButton(
-                    text: 'Continue with Apple',
-                    onPressed: _isLoading ? () {} : _handleAppleSignIn,
-                    type: AppButtonType.secondary,
-                    icon: Icons.apple_rounded,
+                    text: 'Continue with Google',
+                    onPressed: _isLoading ? () {} : _handleGoogleSignIn,
+                    type: AppButtonType.primary,
+                    icon: Icons.g_mobiledata_rounded,
                     isLoading: _isLoading,
+                    isFullWidth: true,
                   ),
-                const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.md),
 
-                // Terms
-                Text(
-                  'By continuing, you agree to our Terms of Service and Privacy Policy.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
+                  // Apple Sign-In Button (iOS/macOS only)
+                  if (Platform.isIOS || Platform.isMacOS)
+                    AppButton(
+                      text: 'Continue with Apple',
+                      onPressed: _isLoading ? () {} : _handleAppleSignIn,
+                      type: AppButtonType.secondary,
+                      icon: Icons.apple_rounded,
+                      isLoading: _isLoading,
+                      isFullWidth: true,
+                    ),
+
+                  const SizedBox(height: AppSpacing.xxl),
+
+                  // Terms
+                  Text(
+                    'By continuing, you agree to our Terms of Service\nand Privacy Policy.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+
+                  const SizedBox(height: AppSpacing.xxl),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFeatureRow({
+    required IconData icon,
+    required String text,
+    required ThemeData theme,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Text(
+          text,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+          ),
+        ),
+      ],
     );
   }
 
@@ -95,13 +188,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await context.read<AuthProvider>().signInWithGoogle();
-      
       // Navigation is handled automatically by auth state listener in AppRouter
-      // No manual navigation needed here
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign-in failed: ${e.toString()}'),
@@ -117,12 +207,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await context.read<AuthProvider>().signInWithApple();
-      
       // Navigation is handled automatically by auth state listener in AppRouter
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign-in failed: ${e.toString()}'),

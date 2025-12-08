@@ -50,41 +50,32 @@ class _NotificationPreferencesScreenState
   }
 
   Future<void> _savePreferences() async {
-    setState(() => _isSaving = true);
+    // Capture current preference values
+    final prefs = {
+      'taskAssignments': _taskAssignments,
+      'taskCompletions': _taskCompletions,
+      'deadlineReminders': _deadlineReminders,
+      'rescheduleRequests': _rescheduleRequests,
+      'teamUpdates': _teamUpdates,
+      'approvalUpdates': _approvalUpdates,
+    };
 
-    try {
-      await _cloudFunctions.updateProfile(
-        notificationPreferences: {
-          'taskAssignments': _taskAssignments,
-          'taskCompletions': _taskCompletions,
-          'deadlineReminders': _deadlineReminders,
-          'rescheduleRequests': _rescheduleRequests,
-          'teamUpdates': _teamUpdates,
-          'approvalUpdates': _approvalUpdates,
-        },
-      );
+    // OPTIMISTIC UPDATE: Show success and navigate back immediately
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Preferences saved'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    context.pop();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Preferences saved'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        context.pop();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
+    // Fire cloud function in background
+    _cloudFunctions.updateProfile(
+      notificationPreferences: prefs,
+    ).catchError((error) {
+      debugPrint('Failed to save preferences: $error');
+      return <String, dynamic>{};
+    });
   }
 
   @override
