@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/task_model.dart';
-import '../../../data/providers/auth_provider.dart';
 import '../../../data/services/cloud_functions_service.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../../common/buttons/app_button.dart';
 import '../../common/inputs/app_text_field.dart';
 
@@ -110,49 +107,31 @@ class _RescheduleRequestDialogState extends State<RescheduleRequestDialog> {
       return;
     }
 
-    setState(() => _isSubmitting = true);
+    // Capture values before popping
+    final newDeadline = _newDeadline;
+    final reason = _reasonController.text.trim().isEmpty
+        ? null
+        : _reasonController.text.trim();
+    final taskId = widget.task.id;
 
-    try {
-      final currentUser = context.read<AuthProvider>().currentUser;
-      if (currentUser == null) throw Exception('User not logged in');
+    // OPTIMISTIC UPDATE: Close dialog and show success immediately
+    Navigator.of(context).pop(true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Reschedule request submitted'),
+        backgroundColor: Colors.green,
+      ),
+    );
 
-      // Call Cloud Function to request reschedule
-      await _cloudFunctions.requestReschedule(
-        taskId: widget.task.id,
-        newDeadline: _newDeadline,
-        reason:
-            _reasonController.text.trim().isEmpty
-                ? null
-                : _reasonController.text.trim(),
-      );
-
-      if (mounted) {
-        Navigator.of(context).pop(true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reschedule request submitted'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } on FirebaseFunctionsException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.message ?? e.code}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
+    // Fire cloud function in background
+    _cloudFunctions.requestReschedule(
+      taskId: taskId,
+      newDeadline: newDeadline,
+      reason: reason,
+    ).catchError((error) {
+      debugPrint('Failed to submit reschedule request: $error');
+      return <String, dynamic>{};
+    });
   }
 
   @override

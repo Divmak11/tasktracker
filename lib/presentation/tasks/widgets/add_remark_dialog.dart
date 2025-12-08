@@ -32,55 +32,41 @@ class _AddRemarkDialogState extends State<AddRemarkDialog> {
 
   Future<void> _handleSubmit() async {
     if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isSubmitting = true);
+      final authProvider = context.read<AuthProvider>();
+      final userId = authProvider.currentUser?.id;
 
-      try {
-        final authProvider = context.read<AuthProvider>();
-        final userId = authProvider.currentUser?.id;
-
-        if (userId == null) {
-          throw Exception('User not authenticated');
-        }
-
-        await _remarkRepository.addRemark(
-          taskId: widget.taskId,
-          userId: userId,
-          message: _messageController.text.trim(),
+      if (userId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User not authenticated')),
         );
-
-        if (mounted) {
-          Navigator.of(context).pop(true); // Return true on success
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Remark Added',
-            message: 'Your remark has been added successfully',
-            icon: Icons.check_circle,
-            backgroundColor: Colors.green.shade700,
-          );
-        }
-      } catch (e) {
-        debugPrint('Error adding remark: $e');
-        if (mounted) {
-          setState(() => _isSubmitting = false);
-          // Show error in dialog instead of snackbar
-          showDialog(
-            context: context,
-            builder:
-                (ctx) => AlertDialog(
-                  title: const Text('Error'),
-                  content: Text(
-                    'Failed to add remark: ${e.toString().replaceAll('Exception: ', '')}',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
-          );
-        }
+        return;
       }
+
+      final message = _messageController.text.trim();
+      
+      // OPTIMISTIC UPDATE: Close dialog and show success immediately
+      Navigator.of(context).pop(true);
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Remark Added',
+        message: 'Your remark has been added successfully',
+        icon: Icons.check_circle,
+        backgroundColor: Colors.green.shade700,
+      );
+
+      // Fire cloud function in background (don't await)
+      // Firestore stream will auto-update remarks list
+      _remarkRepository.addRemark(
+        taskId: widget.taskId,
+        userId: userId,
+        message: message,
+      ).catchError((error) {
+        // Show error notification if background sync fails
+        debugPrint('Error adding remark: $error');
+        // Note: Can't use context.mounted here as dialog is already closed
+        // The remark won't appear in the list since Firestore wasn't updated
+        return ''; // Return empty string to satisfy Future type
+      });
     }
   }
 

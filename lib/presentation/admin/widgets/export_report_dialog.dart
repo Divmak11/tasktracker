@@ -1,9 +1,15 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/team_model.dart';
 import '../../../data/repositories/team_repository.dart';
+import '../../../data/services/cloud_functions_service.dart';
 import '../../common/buttons/app_button.dart';
 
 class ExportReportDialog extends StatefulWidget {
@@ -71,23 +77,66 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
     setState(() => _isGenerating = true);
 
     try {
-      // Simulate report generation delay
-      await Future.delayed(const Duration(seconds: 2));
+      final cloudFunctions = CloudFunctionsService();
+      
+      // Call backend to generate PDF
+      final result = await cloudFunctions.exportReport(
+        startDate: _startDate,
+        endDate: _endDate,
+        teamId: _selectedTeam,
+        status: _selectedStatus,
+      );
 
-      // In production, this would call a Cloud Function to generate PDF
-      // For now, we'll show a message that this feature requires backend setup
+      if (!mounted) return;
+
+      // Get PDF data (base64 string from backend)
+      final pdfBase64 = result['pdfBase64'] as String;
+      final taskCount = result['taskCount'] as int;
+      
+      // Convert base64 to bytes
+      final pdfBytes = base64.decode(pdfBase64);
+      
+      // Save PDF to temporary directory first
+      final tempDir = await getTemporaryDirectory();
+      final fileName = 'task_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsBytes(pdfBytes);
+
+      if (!mounted) return;
+
+      // Show dialog with Save and Share options
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Report Generated'),
+          content: Text('Report generated successfully with $taskCount tasks.\n\nChoose an option:'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _saveToFiles(pdfBytes, fileName, taskCount);
+              },
+              icon: const Icon(Icons.download),
+              label: const Text('Save to Files'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _shareReport(tempFile.path, taskCount);
+              },
+              icon: const Icon(Icons.share),
+              label: const Text('Share'),
+            ),
+          ],
+        ),
+      );
 
       if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'PDF export requires backend setup with Cloud Functions. '
-              'The filters are ready - implement exportReport function to enable.',
-            ),
-            duration: Duration(seconds: 4),
-          ),
-        );
+        Navigator.of(context).pop(); // Close export dialog
       }
     } catch (e) {
       if (mounted) {
@@ -100,6 +149,75 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
       }
     } finally {
       if (mounted) setState(() => _isGenerating = false);
+    }
+  }
+
+  Future<void> _saveToFiles(Uint8List pdfBytes, String fileName, int taskCount) async {
+    try {
+      Directory? directory;
+      
+      // Platform-specific save location
+      if (Platform.isAndroid) {
+        // Try to save to Downloads folder on Android
+        directory = Directory('/storage/emulated/0/Download');
+        if (!await directory.exists()) {
+          // Fallback to external storage directory
+          directory = await getExternalStorageDirectory();
+        }
+      } else if (Platform.isIOS) {
+        // iOS: Save to app documents directory (user can access via Files app)
+        directory = await getApplicationDocumentsDirectory();
+      }
+
+      if (directory == null) {
+        throw Exception('Could not determine save directory');
+      }
+
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(pdfBytes);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Report saved to ${directory.path}'),
+            backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareReport(String filePath, int taskCount) async {
+    try {
+      await Share.shareXFiles(
+        [XFile(filePath)],
+        subject: 'Task Report',
+        text: 'Task Report ($taskCount tasks)',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to share: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

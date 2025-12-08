@@ -116,48 +116,35 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         return;
       }
 
-      setState(() => _isSaving = true);
+      // Capture values before popping
+      final title = _titleController.text.trim();
+      final subtitle = _subtitleController.text.trim();
+      final deadline = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+        _selectedTime!.hour,
+        _selectedTime!.minute,
+      );
 
-      try {
-        // Combine date and time
-        final deadline = DateTime(
-          _selectedDate!.year,
-          _selectedDate!.month,
-          _selectedDate!.day,
-          _selectedTime!.hour,
-          _selectedTime!.minute,
-        );
+      // OPTIMISTIC UPDATE: Show success and navigate back immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Task Updated',
+        message: 'Changes saved successfully',
+        icon: Icons.check_circle,
+        backgroundColor: Colors.green.shade700,
+      );
+      context.pop();
 
-        await _taskRepository.updateTask(widget.taskId, {
-          'title': _titleController.text.trim(),
-          'subtitle': _subtitleController.text.trim(),
-          'deadline': deadline,
-        });
-
-        if (mounted) {
-          setState(() => _isSaving = false);
-
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Task Updated',
-            message: 'Changes saved successfully',
-            icon: Icons.check_circle,
-            backgroundColor: Colors.green.shade700,
-          );
-
-          context.pop();
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() => _isSaving = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error updating task: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      // Fire in background - task detail will update via Firestore stream
+      _taskRepository.updateTask(widget.taskId, {
+        'title': title,
+        'subtitle': subtitle,
+        'deadline': deadline,
+      }).catchError((error) {
+        debugPrint('Failed to update task: $error');
+      });
     }
   }
 

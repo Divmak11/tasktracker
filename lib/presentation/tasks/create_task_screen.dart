@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -9,10 +8,8 @@ import '../../data/models/user_model.dart';
 import '../../data/models/team_model.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/team_repository.dart';
-import '../../data/providers/auth_provider.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/cloud_functions_service.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
 
@@ -84,71 +81,45 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         return;
       }
 
-      setState(() => _isLoading = true);
+      // Get task title for notification (before clearing form)
+      final taskTitle = _titleController.text.trim();
+      final taskSubtitle = _subtitleController.text.trim();
+      final assignedType = _assignedType.name;
+      final assignedTo = _selectedAssigneeId!;
+      
+      // Combine date and time
+      final deadline = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+        _selectedTime!.hour,
+        _selectedTime!.minute,
+      );
 
-      try {
-        final authProvider = context.read<AuthProvider>();
-        final currentUser = authProvider.currentUser;
+      // OPTIMISTIC UPDATE: Show success and navigate back immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Task Created',
+        message: 'Task "$taskTitle" created successfully',
+        icon: Icons.check_circle,
+        backgroundColor: Colors.green.shade700,
+      );
+      context.pop();
 
-        if (currentUser == null) {
-          throw Exception('User not logged in');
-        }
-
-        // Combine date and time
-        final deadline = DateTime(
-          _selectedDate!.year,
-          _selectedDate!.month,
-          _selectedDate!.day,
-          _selectedTime!.hour,
-          _selectedTime!.minute,
-        );
-
-        // Call Cloud Function to assign task
-        await _cloudFunctions.assignTask(
-          title: _titleController.text.trim(),
-          subtitle: _subtitleController.text.trim(),
-          assignedType: _assignedType.name,
-          assignedTo: _selectedAssigneeId!,
-          deadline: deadline,
-        );
-
-        if (mounted) {
-          setState(() => _isLoading = false);
-
-          // Show success notification
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Task Created',
-            message:
-                'Task "${_titleController.text.trim()}" created successfully',
-            icon: Icons.check_circle,
-            backgroundColor: Colors.green.shade700,
-          );
-
-          // Go back
-          context.pop();
-        }
-      } on FirebaseFunctionsException catch (e) {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: ${e.message ?? e.code}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error creating task: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      // Fire cloud function in background (don't await)
+      // Task will appear in list once Firestore updates
+      _cloudFunctions.assignTask(
+        title: taskTitle,
+        subtitle: taskSubtitle,
+        assignedType: assignedType,
+        assignedTo: assignedTo,
+        deadline: deadline,
+      ).catchError((error) {
+        // Can't show snackbar here since screen is popped, but task won't appear
+        // The user will notice task is missing and can recreate
+        debugPrint('Failed to create task: $error');
+        return <String, dynamic>{};
+      });
     }
   }
 

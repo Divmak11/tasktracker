@@ -43,47 +43,36 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
     );
 
     if (confirm == true && mounted) {
-      setState(() => _processingUsers.add(user.id));
+      // OPTIMISTIC UPDATE: Show success immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'User Approved',
+        message: '${user.email} has been granted access',
+        icon: Icons.check_circle,
+        backgroundColor: Colors.green.shade700,
+      );
 
-      try {
-        // Call Cloud Function to approve user
-        await _cloudFunctions.approveUserAccess(user.id);
-
+      // Fire cloud function in background - Firestore stream removes user from list
+      _cloudFunctions.approveUserAccess(user.id).catchError((error) {
         if (mounted) {
-          setState(() => _processingUsers.remove(user.id));
-
-          // Show success notification
-          NotificationService.showInAppNotification(
-            context,
-            title: 'User Approved',
-            message: '${user.email} has been granted access',
-            icon: Icons.check_circle,
-            backgroundColor: Colors.green.shade700,
-          );
-        }
-      } on FirebaseFunctionsException catch (e) {
-        if (mounted) {
-          setState(() => _processingUsers.remove(user.id));
-
+          final message = error is FirebaseFunctionsException 
+              ? error.message ?? error.code 
+              : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error: ${e.message ?? e.code}'),
+              content: Text('Failed to sync: $message'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: () => _handleApprove(user),
+              ),
             ),
           );
         }
-      } catch (e) {
-        if (mounted) {
-          setState(() => _processingUsers.remove(user.id));
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error approving user: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+        return <String, dynamic>{};
+      });
     }
   }
 
@@ -109,47 +98,36 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
     );
 
     if (confirm == true && mounted) {
-      setState(() => _processingUsers.add(user.id));
+      // OPTIMISTIC UPDATE: Show success immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'User Rejected',
+        message: '${user.email} access request has been rejected',
+        icon: Icons.block,
+        backgroundColor: Colors.orange.shade700,
+      );
 
-      try {
-        // Call Cloud Function to reject user
-        await _cloudFunctions.rejectUserAccess(user.id);
-
+      // Fire cloud function in background
+      _cloudFunctions.rejectUserAccess(user.id).catchError((error) {
         if (mounted) {
-          setState(() => _processingUsers.remove(user.id));
-
-          // Show warning notification
-          NotificationService.showInAppNotification(
-            context,
-            title: 'User Rejected',
-            message: '${user.email} access request has been rejected',
-            icon: Icons.block,
-            backgroundColor: Colors.orange.shade700,
-          );
-        }
-      } on FirebaseFunctionsException catch (e) {
-        if (mounted) {
-          setState(() => _processingUsers.remove(user.id));
-
+          final message = error is FirebaseFunctionsException 
+              ? error.message ?? error.code 
+              : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error: ${e.message ?? e.code}'),
+              content: Text('Failed to sync: $message'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: () => _handleReject(user),
+              ),
             ),
           );
         }
-      } catch (e) {
-        if (mounted) {
-          setState(() => _processingUsers.remove(user.id));
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error rejecting user: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+        return <String, dynamic>{};
+      });
     }
   }
 

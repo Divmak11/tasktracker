@@ -143,14 +143,14 @@ class CloudFunctionsService {
     DateTime? deadline,
   }) async {
     final callable = _functions.httpsCallable('updateTask');
-    final updates = <String, dynamic>{};
-
-    if (title != null) updates['title'] = title;
-    if (subtitle != null) updates['subtitle'] = subtitle;
-    if (deadline != null)
-      updates['deadline'] = deadline.toUtc().toIso8601String();
-
-    final result = await callable.call({'taskId': taskId, 'updates': updates});
+    final result = await callable.call({
+      'taskId': taskId,
+      'updates': {
+        if (title != null) 'title': title,
+        if (subtitle != null) 'subtitle': subtitle,
+        if (deadline != null) 'deadline': deadline.toIso8601String(),
+      },
+    });
     return Map<String, dynamic>.from(result.data);
   }
 
@@ -313,6 +313,27 @@ class CloudFunctionsService {
   Future<Map<String, dynamic>> getInvites({String? status}) async {
     final callable = _functions.httpsCallable('getInvites');
     final result = await callable.call({if (status != null) 'status': status});
+    return Map<String, dynamic>.from(result.data);
+  }
+
+  // ============================================
+  // REPORT EXPORT
+  // ============================================
+
+  /// Export tasks report as PDF (Super Admin only)
+  Future<Map<String, dynamic>> exportReport({
+    required DateTime startDate,
+    required DateTime endDate,
+    String? teamId,
+    String? status,
+  }) async {
+    final callable = _functions.httpsCallable('exportReport');
+    final result = await callable.call({
+      'startDate': startDate.toIso8601String(),
+      'endDate': endDate.toIso8601String(),
+      if (teamId != null) 'teamId': teamId,
+      if (status != null) 'status': status,
+    });
     return Map<String, dynamic>.from(result.data);
   }
 }

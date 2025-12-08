@@ -100,43 +100,42 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    // Capture values before popping
+    final name = _nameController.text.trim();
+    final hasNewImage = _selectedImage != null;
 
-    try {
-      // Upload image if selected
+    // OPTIMISTIC UPDATE: Show success and navigate back immediately
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Profile updated successfully'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    context.pop();
+
+    // Fire in background - upload image if selected, then update profile
+    Future<void> updateProfile() async {
       String? newAvatarUrl;
-      if (_selectedImage != null) {
-        newAvatarUrl = await _uploadImage();
+      if (hasNewImage && _selectedImage != null) {
+        final user = context.read<AuthProvider>().currentUser;
+        if (user != null) {
+          final ref = FirebaseStorage.instance
+              .ref()
+              .child('avatars')
+              .child('${user.id}.jpg');
+          await ref.putFile(_selectedImage!);
+          newAvatarUrl = await ref.getDownloadURL();
+        }
       }
-
-      // Update profile via Cloud Function
       await _cloudFunctions.updateProfile(
-        name: _nameController.text.trim(),
+        name: name,
         avatarUrl: newAvatarUrl,
       );
-
-      // The user data will be automatically refreshed via the Firestore listener
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile updated successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        context.pop();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update profile: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+
+    updateProfile().catchError((error) {
+      debugPrint('Failed to update profile: $error');
+    });
   }
 
   @override

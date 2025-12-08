@@ -547,33 +547,43 @@ class TaskDetailScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
-      try {
-        // Call Cloud Function to complete task
-        final cloudFunctions = CloudFunctionsService();
-        await cloudFunctions.completeTask(task.id);
+      // OPTIMISTIC UPDATE: Show success immediately
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Task Completed',
+        message: 'Task marked as completed',
+        icon: Icons.check_circle,
+        backgroundColor: Colors.green.shade700,
+      );
 
+      // Navigate back to home for better UX
+      context.pop();
+
+      // Fire cloud function in background (don't await)
+      // Firestore stream will auto-update UI with server state
+      final cloudFunctions = CloudFunctionsService();
+      cloudFunctions.completeTask(task.id).catchError((error) {
+        // Show error with retry if background sync fails
+        // UI will naturally revert via Firestore stream since server wasn't updated
         if (context.mounted) {
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Task Completed',
-            message: 'Task marked as completed',
-            icon: Icons.check_circle,
-            backgroundColor: Colors.green.shade700,
-          );
-        }
-      } on FirebaseFunctionsException catch (e) {
-        if (context.mounted) {
+          final message = error is FirebaseFunctionsException 
+              ? error.message ?? error.code 
+              : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: ${e.message ?? e.code}')),
+            SnackBar(
+              content: Text('Failed to sync: $message'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: () => _handleComplete(context, taskRepository, task),
+              ),
+            ),
           );
         }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
-      }
+        return <String, dynamic>{};
+      });
     }
   }
 
@@ -603,49 +613,42 @@ class TaskDetailScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()),
+      // OPTIMISTIC UPDATE: Show success immediately (no loading dialog)
+      NotificationService.showInAppNotification(
+        context,
+        title: 'Task Cancelled',
+        message: 'Task has been cancelled',
+        icon: Icons.cancel,
+        backgroundColor: Colors.orange.shade700,
       );
 
-      try {
-        // Call Cloud Function to cancel task
-        final cloudFunctions = CloudFunctionsService();
-        await cloudFunctions.cancelTask(task.id);
+      // Navigate back to home for better UX
+      context.pop();
 
-        // Dismiss loading dialog
-        if (context.mounted) Navigator.of(context).pop();
-
+      // Fire cloud function in background (don't await)
+      // Firestore stream will auto-update UI with server state
+      final cloudFunctions = CloudFunctionsService();
+      cloudFunctions.cancelTask(task.id).catchError((error) {
+        // Show error with retry if background sync fails
         if (context.mounted) {
-          NotificationService.showInAppNotification(
-            context,
-            title: 'Task Cancelled',
-            message: 'Task has been cancelled',
-            icon: Icons.cancel,
-            backgroundColor: Colors.orange.shade700,
-          );
-        }
-      } on FirebaseFunctionsException catch (e) {
-        // Dismiss loading dialog
-        if (context.mounted) Navigator.of(context).pop();
-        
-        if (context.mounted) {
+          final message = error is FirebaseFunctionsException 
+              ? error.message ?? error.code 
+              : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: ${e.message ?? e.code}')),
+            SnackBar(
+              content: Text('Failed to sync: $message'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: () => _handleCancel(context, taskRepository, task),
+              ),
+            ),
           );
         }
-      } catch (e) {
-        // Dismiss loading dialog
-        if (context.mounted) Navigator.of(context).pop();
-        
-        if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
-      }
+        return <String, dynamic>{};
+      });
     }
   }
 }
