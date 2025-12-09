@@ -56,6 +56,12 @@ class AuthRepository {
     }
   }
 
+  /// Sign out from Google Sign-In only (keeps Firebase session)
+  /// Used to force account picker on next Google Sign-In attempt
+  Future<void> signOutGoogleOnly() async {
+    await _googleSignIn.signOut();
+  }
+
   /// Sign out
   Future<void> signOut() async {
     await Future.wait([

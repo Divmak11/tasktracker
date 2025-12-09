@@ -139,8 +139,27 @@ class AuthProvider with ChangeNotifier {
       await _authRepository.signInWithGoogle();
       debugPrint('✅ Google Sign-In successful');
       // User data will be loaded automatically via auth state listener
+      
+      // Wait a moment for user data to load
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Check if user has revoked status
+      if (_currentUser?.status == UserStatus.revoked) {
+        debugPrint('⚠️ User has revoked status, signing out from Google only');
+        // Sign out from Google only to force account picker on next attempt
+        // Keep Firebase session so router can navigate to AccessRevokedScreen
+        await _authRepository.signOutGoogleOnly();
+        _isLoading = false;
+        notifyListeners();
+        // Don't rethrow - let router handle navigation to AccessRevokedScreen
+        return;
+      }
     } catch (e) {
       debugPrint('❌ Google Sign-In failed: $e');
+      
+      // Always sign out from Google on any error to force account picker on next attempt
+      await _authRepository.signOutGoogleOnly();
+      
       _isLoading = false;
       notifyListeners();
       rethrow;

@@ -54,6 +54,10 @@ class AppRouter {
         final isOnRevokedPage =
             state.matchedLocation == AppRoutes.accessRevoked;
 
+        // Allow access to access-revoked page even if not authenticated
+        // This is needed for disabled Firebase accounts
+        if (isOnRevokedPage) return null;
+
         // Not authenticated -> redirect to login
         if (!isAuthenticated) {
           return isOnLoginPage ? null : AppRoutes.login;
