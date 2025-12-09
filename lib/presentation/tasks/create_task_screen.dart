@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
-import '../../data/models/task_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/team_model.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/cloud_functions_service.dart';
+import '../../data/providers/auth_provider.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
+
+// Extended enum for assignment type including Self
+enum AssignmentType {
+  member,
+  team,
+  self,
+}
 
 class CreateTaskScreen extends StatefulWidget {
   const CreateTaskScreen({super.key});
@@ -31,10 +39,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
-  TaskAssignedType _assignedType = TaskAssignedType.member;
+  AssignmentType _assignmentType = AssignmentType.member;
   String? _selectedAssigneeId;
   String? _selectedAssigneeName;
-  bool _isLoading = false;
+  final bool _isLoading = false;
 
   @override
   void dispose() {
@@ -74,18 +82,37 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         );
         return;
       }
-      if (_selectedAssigneeId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select an assignee')),
-        );
-        return;
+
+      // Get current user for 'self' assignment
+      final currentUser = context.read<AuthProvider>().currentUser;
+
+      // Determine assignee based on assignment type
+      String assigneeId;
+      String assignedTypeStr;
+
+      if (_assignmentType == AssignmentType.self) {
+        if (currentUser == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Unable to assign to self. Please login again.')),
+          );
+          return;
+        }
+        assigneeId = currentUser.id;
+        assignedTypeStr = 'member'; // Backend stores 'self' as 'member' type
+      } else {
+        if (_selectedAssigneeId == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select an assignee')),
+          );
+          return;
+        }
+        assigneeId = _selectedAssigneeId!;
+        assignedTypeStr = _assignmentType.name;
       }
 
       // Get task title for notification (before clearing form)
       final taskTitle = _titleController.text.trim();
       final taskSubtitle = _subtitleController.text.trim();
-      final assignedType = _assignedType.name;
-      final assignedTo = _selectedAssigneeId!;
       
       // Combine date and time
       final deadline = DateTime(
@@ -111,8 +138,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _cloudFunctions.assignTask(
         title: taskTitle,
         subtitle: taskSubtitle,
-        assignedType: assignedType,
-        assignedTo: assignedTo,
+        assignedType: assignedTypeStr,
+        assignedTo: assigneeId,
         deadline: deadline,
       ).catchError((error) {
         // Can't show snackbar here since screen is popped, but task won't appear
@@ -177,25 +204,30 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         style: theme.textTheme.titleMedium,
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      SegmentedButton<TaskAssignedType>(
+                      SegmentedButton<AssignmentType>(
                         segments: const [
                           ButtonSegment(
-                            value: TaskAssignedType.member,
+                            value: AssignmentType.member,
                             label: Text('Member'),
                             icon: Icon(Icons.person_outline),
                           ),
                           ButtonSegment(
-                            value: TaskAssignedType.team,
+                            value: AssignmentType.team,
                             label: Text('Team'),
                             icon: Icon(Icons.groups_outlined),
                           ),
+                          ButtonSegment(
+                            value: AssignmentType.self,
+                            label: Text('Self'),
+                            icon: Icon(Icons.person),
+                          ),
                         ],
-                        selected: {_assignedType},
+                        selected: {_assignmentType},
                         onSelectionChanged: (
-                          Set<TaskAssignedType> newSelection,
+                          Set<AssignmentType> newSelection,
                         ) {
                           setState(() {
-                            _assignedType = newSelection.first;
+                            _assignmentType = newSelection.first;
                             _selectedAssigneeId = null; // Reset selection
                             _selectedAssigneeName = null;
                             _memberSearchController.clear();
@@ -204,20 +236,22 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
 
-                      // Assignee Dropdown
-                      Text(
-                        _assignedType == TaskAssignedType.member
-                            ? 'Assign To'
-                            : 'Assign to Team',
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
+                      // Assignee Dropdown (hide for 'Self')
+                      if (_assignmentType != AssignmentType.self) ...[
+                        Text(
+                          _assignmentType == AssignmentType.member
+                              ? 'Assign To'
+                              : 'Assign to Team',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
 
-                      _assignedType == TaskAssignedType.member
-                          ? _buildMemberDropdown()
-                          : _buildTeamDropdown(),
+                        _assignmentType == AssignmentType.member
+                            ? _buildMemberDropdown()
+                            : _buildTeamDropdown(),
 
-                      const SizedBox(height: AppSpacing.lg),
+                        const SizedBox(height: AppSpacing.lg),
+                      ],
 
                       // Deadline
                       Text('Deadline', style: theme.textTheme.titleMedium),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
@@ -21,6 +22,16 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Configure Firebase Auth persistence to keep users logged in
+  // This ensures users don't get logged out unexpectedly
+  try {
+    await firebase_auth.FirebaseAuth.instance
+        .setPersistence(firebase_auth.Persistence.LOCAL);
+    debugPrint('✅ Firebase Auth persistence set to LOCAL');
+  } catch (e) {
+    debugPrint('⚠️ Failed to set Firebase Auth persistence: $e');
+  }
 
   // Enable Firestore persistence for offline support and faster reads
   FirebaseFirestore.instance.settings = const Settings(

@@ -1,7 +1,7 @@
 # TODO Planner - CodeMap & Technical Reference
 
-**Version:** 1.0.1  
-**Last Updated:** 2025-12-06  
+**Version:** 1.0.2  
+**Last Updated:** 2025-12-09  
 **Project Version:** 1.0.0+1
 
 ---
@@ -379,10 +379,12 @@ MultiProvider(
 - `CreateTeamScreen` - Team creation form
 - `TeamDetailScreen` - Team members view
 - `ApprovalQueueScreen` - **NEW** - Approve/reject pending users (Super Admin)
-- `UserManagementScreen` - **NEW** - Manage all users, change roles (Super Admin)
+- `UserManagementScreen` - **UPDATED** - Manage all users with dual filters:
+  - Role Filter: All Roles, Super Admin, Team Admin, Members
+  - Status Filter: All, Active, Revoked (helps manage 100+ user lists)
 
 **Task Module** (`presentation/tasks/`):
-- `CreateTaskScreen` - Task form with date picker
+- `CreateTaskScreen` - **UPDATED** - Task form with 3 assignment types (Member, Team, Self)
 - `TaskDetailScreen` - Full task info with actions
 
 **Home Module** (`presentation/home/`):
@@ -523,24 +525,31 @@ SettingsScreen / RequestPendingScreen
   ↓ context.go(AppRoutes.login)
 ```
 
-### Task Creation Flow (UI Only)
+### Task Creation Flow (Implemented ✅)
 ```
 HomeScreen
   ↓ User taps FAB
   ↓ context.go('/task/create')
   ↓
 CreateTaskScreen
-  ↓ User fills form (title, description, deadline, assignee)
+  ↓ User fills form (title, description, deadline)
+  ↓ User selects assignment type:
+  │   - Member (search & select user from dropdown)
+  │   - Team (select from team dropdown)
+  │   - Self (automatically assigns to current user, no dropdown needed)
   ↓ User taps "Create Task"
   ↓ Validate form
-  ↓ Currently: Mock delay → context.pop()
-  ↓
-Future: 
-  ↓ TaskProvider.createTask(data)
-  ↓ TaskRepository.create(task)
-  ↓ Firestore creates document
-  ↓ Cloud Function triggers → Create calendar event + Send notification
+  ↓ Optimistic update: Show success notification
+  ↓ context.pop()
+  ↓ Fire Cloud Function in background (assignTask)
+  ↓ Cloud Function creates task + Calendar event + Sends notification
+  ↓ Firestore real-time listener updates task list
 ```
+
+**Self Assignment Feature**: 
+- When "Self" is selected, assignee dropdown is hidden
+- Task is automatically assigned to the current logged-in user
+- Backend receives 'member' as assignedType with current user's ID
 
 ### Task Completion Flow (Implemented)
 ```
@@ -781,6 +790,40 @@ await cloudFunctions.disconnectCalendar();
 **Issue**: Button Text Overflow
 - **Symptom**: RenderFlex overflow on the right in `AppButton`.
 - **Solution**: Wrap Text in `Flexible` with `TextOverflow.ellipsis` in `app_button.dart`.
+
+**Issue**: Google Sign-In SecurityException ⚠️ IMPORTANT
+- **Symptom**: `E/GoogleApiManager: java.lang.SecurityException: Unknown calling package name 'com.google.android.gms'`
+- **Cause**: Missing SHA-1/SHA-256 fingerprints in Firebase Console.
+- **Solution**: 
+  1. Run `cd android && ./gradlew signingReport`
+  2. Copy SHA-1 and SHA-256 hashes
+  3. Add them to Firebase Console → Project Settings → Your Android App
+  4. Download updated `google-services.json`
+  5. Rebuild app
+- **Full Guide**: See `.windsurf/GOOGLE_SIGNIN_FIX.md`
+
+**Issue**: Users Getting Logged Out Automatically
+- **Symptom**: Super Admin users report being logged out after some time.
+- **Cause**: Firebase Auth persistence not explicitly configured.
+- **Solution**: ✅ **FIXED** - Added `Firebase.Auth.setPersistence(Persistence.LOCAL)` in main.dart (line 27-33)
+- **Verification**: Check logs for `✅ Firebase Auth persistence set to LOCAL`
+
+**Issue**: App Always Shows Login Screen on Launch
+- **Symptom**: Even authenticated users see login screen briefly before being redirected.
+- **Cause**: Router `initialLocation` was set to `/login`, causing flash of login screen.
+- **Solution**: ✅ **FIXED** - 
+  1. Added `SplashScreen` component
+  2. Changed `initialLocation` to `/` (shows splash while checking auth)
+  3. Router redirects to appropriate screen after auth state loads
+- **Impact**: Users now see branded splash screen → seamless navigation to Dashboard/Home
+
+**Issue**: Splash Screen Shows Too Long
+- **Symptom**: Splash screen visible for extended period.
+- **Cause**: Slow network or large Firestore user document.
+- **Solution**: 
+  - Check `_loadUserData()` in `auth_provider.dart`
+  - Verify Firestore indexes are created
+  - Monitor `🔀 Router Redirect` debug logs
 
 ---
 

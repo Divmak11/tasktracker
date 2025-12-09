@@ -5,6 +5,7 @@ import '../../presentation/auth/signup_screen.dart';
 import '../../presentation/auth/request_pending_screen.dart';
 import '../../presentation/auth/access_revoked_screen.dart';
 import '../../presentation/auth/onboarding_screen.dart';
+import '../../presentation/auth/splash_screen.dart';
 import '../../presentation/navigation/main_layout.dart';
 import '../../presentation/admin/admin_dashboard_screen.dart';
 import '../../presentation/admin/team_management_screen.dart';
@@ -39,58 +40,68 @@ class AppRouter {
   static GoRouter createRouter(AuthProvider authProvider) {
     return GoRouter(
       navigatorKey: _rootNavigatorKey,
-      initialLocation: AppRoutes.login,
+      initialLocation: '/', // Start at root, will redirect based on auth state
       redirect: (context, state) {
         final isAuthenticated = authProvider.isAuthenticated;
         final currentUser = authProvider.currentUser;
         final isLoading = authProvider.isLoading;
 
-        // Don't redirect while loading
-        if (isLoading) return null;
+        final currentPath = state.matchedLocation;
+        final isOnSplashPage = currentPath == '/';
+        final isOnLoginPage = currentPath == AppRoutes.login;
+        final isOnPendingPage = currentPath == AppRoutes.requestPending;
+        final isOnRevokedPage = currentPath == AppRoutes.accessRevoked;
 
-        final isOnLoginPage = state.matchedLocation == AppRoutes.login;
-        final isOnPendingPage =
-            state.matchedLocation == AppRoutes.requestPending;
-        final isOnRevokedPage =
-            state.matchedLocation == AppRoutes.accessRevoked;
+        debugPrint('🔀 Router Redirect - Path: $currentPath, Auth: $isAuthenticated, Loading: $isLoading, User: ${currentUser?.email}');
+
+        // Show splash screen while loading auth state
+        if (isLoading) {
+          return isOnSplashPage ? null : '/';
+        }
 
         // Allow access to access-revoked page even if not authenticated
-        // This is needed for disabled Firebase accounts
         if (isOnRevokedPage) return null;
 
         // Not authenticated -> redirect to login
         if (!isAuthenticated) {
+          debugPrint('🔀 Not authenticated, redirecting to login');
           return isOnLoginPage ? null : AppRoutes.login;
         }
 
-        // Authenticated but user data not loaded yet
+        // Authenticated but user data not loaded yet -> show splash
         if (currentUser == null) {
-          return null; // Wait for user data to load
+          debugPrint('🔀 User data not loaded, showing splash');
+          return isOnSplashPage ? null : '/';
         }
 
         // Check user status
         if (currentUser.status == UserStatus.pending) {
+          debugPrint('🔀 User pending, redirecting to pending page');
           return isOnPendingPage ? null : AppRoutes.requestPending;
         }
 
         if (currentUser.status == UserStatus.revoked) {
-          // Redirect to access revoked page instead of force logout
+          debugPrint('🔀 User revoked, redirecting to revoked page');
           return isOnRevokedPage ? null : AppRoutes.accessRevoked;
         }
 
-        // User is active - redirect from login/pending/revoked to appropriate home
-        if (isOnLoginPage || isOnPendingPage || isOnRevokedPage) {
-          // Check if we should show onboarding (could add a flag in user doc)
-          if (currentUser.role == UserRole.superAdmin) {
-            return AppRoutes.adminDashboard;
-          } else {
-            return AppRoutes.home;
-          }
+        // User is active - redirect from login/pending/revoked/splash to appropriate home
+        if (isOnLoginPage || isOnPendingPage || isOnRevokedPage || isOnSplashPage) {
+          final destination = currentUser.role == UserRole.superAdmin
+              ? AppRoutes.adminDashboard
+              : AppRoutes.home;
+          debugPrint('🔀 User active, redirecting to $destination');
+          return destination;
         }
 
         return null; // No redirect needed
       },
       routes: [
+        // Splash Screen (root)
+        GoRoute(
+          path: '/',
+          builder: (context, state) => const SplashScreen(),
+        ),
         GoRoute(
           path: AppRoutes.login,
           builder: (context, state) => const LoginScreen(),

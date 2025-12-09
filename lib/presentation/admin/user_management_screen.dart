@@ -6,7 +6,6 @@ import '../../data/models/user_model.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/services/cloud_functions_service.dart';
 import '../../data/services/notification_service.dart';
-import '../common/cards/app_card.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -18,7 +17,11 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final UserRepository _userRepository = UserRepository();
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
-  UserRole? _selectedFilter;
+  final TextEditingController _searchController = TextEditingController();
+  
+  UserRole? _selectedRoleFilter;
+  UserStatus? _selectedStatusFilter;
+  String _searchQuery = '';
 
   Future<void> _showChangeRoleDialog(UserModel user) async {
     UserRole? newRole = user.role;
@@ -189,6 +192,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -197,27 +206,122 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       appBar: AppBar(
         title: const Text('User Management'),
         automaticallyImplyLeading: true,
+        elevation: 0,
       ),
       body: Column(
         children: [
-          // Filter Tabs
+          // Search Bar
           Container(
-            color: isDark ? AppColors.neutral900 : AppColors.neutral50,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screenPaddingMobile,
+              AppSpacing.sm,
+              AppSpacing.screenPaddingMobile,
+              AppSpacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.neutral900 : Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+                  width: 1,
+                ),
+              ),
+            ),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+              decoration: InputDecoration(
+                hintText: 'Search by name or email...',
+                prefixIcon: Icon(
+                  Icons.search,
+                  color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+                  size: 20,
+                ),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: Icon(
+                          Icons.clear,
+                          size: 18,
+                          color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+                        ),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: isDark ? AppColors.neutral800 : AppColors.neutral50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                isDense: true,
+              ),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+
+          // Compact Filters - Single Row
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.screenPaddingMobile,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.neutral900 : Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+                  width: 1,
+                ),
+              ),
+            ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
-              ),
               child: Row(
                 children: [
-                  _buildFilterChip(context, null, 'All'),
-                  const SizedBox(width: AppSpacing.sm),
-                  _buildFilterChip(context, UserRole.superAdmin, 'Super Admin'),
-                  const SizedBox(width: AppSpacing.sm),
-                  _buildFilterChip(context, UserRole.teamAdmin, 'Team Admin'),
-                  const SizedBox(width: AppSpacing.sm),
-                  _buildFilterChip(context, UserRole.member, 'Members'),
+                  // Status Filters
+                  _buildCompactChip('All', _selectedStatusFilter == null, () {
+                    setState(() => _selectedStatusFilter = null);
+                  }),
+                  const SizedBox(width: AppSpacing.xs),
+                  _buildCompactChip('Active', _selectedStatusFilter == UserStatus.active, () {
+                    setState(() => _selectedStatusFilter = UserStatus.active);
+                  }),
+                  const SizedBox(width: AppSpacing.xs),
+                  _buildCompactChip('Revoked', _selectedStatusFilter == UserStatus.revoked, () {
+                    setState(() => _selectedStatusFilter = UserStatus.revoked);
+                  }),
+                  
+                  // Vertical divider
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                    width: 1,
+                    height: 24,
+                    color: isDark ? AppColors.neutral700 : AppColors.neutral300,
+                  ),
+                  
+                  // Role Filters
+                  _buildCompactChip('All Roles', _selectedRoleFilter == null, () {
+                    setState(() => _selectedRoleFilter = null);
+                  }),
+                  const SizedBox(width: AppSpacing.xs),
+                  _buildCompactChip('Admin', _selectedRoleFilter == UserRole.superAdmin, () {
+                    setState(() => _selectedRoleFilter = UserRole.superAdmin);
+                  }),
+                  const SizedBox(width: AppSpacing.xs),
+                  _buildCompactChip('Team Admin', _selectedRoleFilter == UserRole.teamAdmin, () {
+                    setState(() => _selectedRoleFilter = UserRole.teamAdmin);
+                  }),
+                  const SizedBox(width: AppSpacing.xs),
+                  _buildCompactChip('Member', _selectedRoleFilter == UserRole.member, () {
+                    setState(() => _selectedRoleFilter = UserRole.member);
+                  }),
                 ],
               ),
             ),
@@ -237,133 +341,54 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 }
 
                 var users = snapshot.data!;
-                if (_selectedFilter != null) {
-                  users =
-                      users.where((u) => u.role == _selectedFilter).toList();
+                
+                // Apply role filter
+                if (_selectedRoleFilter != null) {
+                  users = users.where((u) => u.role == _selectedRoleFilter).toList();
+                }
+                
+                // Apply status filter
+                if (_selectedStatusFilter != null) {
+                  users = users.where((u) => u.status == _selectedStatusFilter).toList();
+                }
+                
+                // Apply search filter
+                if (_searchQuery.isNotEmpty) {
+                  users = users.where((u) {
+                    return u.name.toLowerCase().contains(_searchQuery) ||
+                        u.email.toLowerCase().contains(_searchQuery);
+                  }).toList();
                 }
 
                 if (users.isEmpty) {
-                  return const Center(child: Text('No users found'));
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.person_off_outlined,
+                          size: 64,
+                          color: isDark ? AppColors.neutral600 : AppColors.neutral400,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        Text(
+                          'No users found',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
                 }
 
                 return ListView.separated(
                   padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
                   itemCount: users.length,
-                  separatorBuilder:
-                      (context, index) => const SizedBox(height: AppSpacing.md),
+                  separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
                   itemBuilder: (context, index) {
                     final user = users[index];
-                    final isRevoked = user.status == UserStatus.revoked;
-
-                    return AppCard(
-                      type: AppCardType.standard,
-                      onTap:
-                          () => context.push('/admin/users/${user.id}/tasks'),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: theme.colorScheme.primaryContainer,
-                          child: Text(
-                            user.name.isNotEmpty ? user.name[0] : '?',
-                            style: TextStyle(
-                              color: theme.colorScheme.onPrimaryContainer,
-                            ),
-                          ),
-                        ),
-                        title: Row(
-                          children: [
-                            Expanded(child: Text(user.name)),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.sm,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _getRoleColor(user.role, theme),
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.small,
-                                ),
-                              ),
-                              child: Text(
-                                _getRoleText(user.role),
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: AppSpacing.xs),
-                            Text(user.email),
-                            if (isRevoked)
-                              Padding(
-                                padding: const EdgeInsets.only(
-                                  top: AppSpacing.xs,
-                                ),
-                                child: Text(
-                                  'Access Revoked',
-                                  style: TextStyle(
-                                    color: Colors.orange,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (value) {
-                            switch (value) {
-                              case 'view_tasks':
-                                context.push('/admin/users/${user.id}/tasks');
-                                break;
-                              case 'change_role':
-                                _showChangeRoleDialog(user);
-                                break;
-                              case 'revoke':
-                                _handleRevokeAccess(user);
-                                break;
-                              case 'restore':
-                                _handleRestoreAccess(user);
-                                break;
-                            }
-                          },
-                          itemBuilder:
-                              (context) => [
-                                const PopupMenuItem(
-                                  value: 'view_tasks',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.assignment_outlined, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('View Tasks'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'change_role',
-                                  child: Text('Change Role'),
-                                ),
-                                if (!isRevoked)
-                                  const PopupMenuItem(
-                                    value: 'revoke',
-                                    child: Text('Revoke Access'),
-                                  )
-                                else
-                                  const PopupMenuItem(
-                                    value: 'restore',
-                                    child: Text('Restore Access'),
-                                  ),
-                              ],
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.xs,
-                        ),
-                      ),
-                    );
+                    return _buildUserTile(user, theme, isDark);
                   },
                 );
               },
@@ -374,21 +399,238 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
   }
 
-  Widget _buildFilterChip(BuildContext context, UserRole? role, String label) {
+  // Compact chip widget for filters
+  Widget _buildCompactChip(String label, bool isSelected, VoidCallback onTap) {
     final theme = Theme.of(context);
-    final isSelected = _selectedFilter == role;
+    final isDark = theme.brightness == Brightness.dark;
 
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) {
-        setState(() {
-          _selectedFilter = selected ? role : null;
-        });
-      },
-      selectedColor: theme.colorScheme.primaryContainer,
-      checkmarkColor: theme.colorScheme.onPrimaryContainer,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? theme.colorScheme.primary
+              : (isDark ? AppColors.neutral800 : AppColors.neutral100),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? theme.colorScheme.primary
+                : (isDark ? AppColors.neutral700 : AppColors.neutral300),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: isSelected
+                ? Colors.white
+                : (isDark ? AppColors.neutral300 : AppColors.neutral700),
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
     );
+  }
+
+  // Streamlined user tile
+  Widget _buildUserTile(UserModel user, ThemeData theme, bool isDark) {
+    final isRevoked = user.status == UserStatus.revoked;
+
+    return InkWell(
+      onTap: () => context.push('/admin/users/${user.id}/tasks'),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.neutral800 : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Compact Avatar
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: theme.colorScheme.primaryContainer,
+              child: Text(
+                user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            
+            // User Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Name + Role Badge + Revoked Status (inline)
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          user.name,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      _buildCompactRoleBadge(user.role, theme),
+                      if (isRevoked) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'REVOKED',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.orange,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  
+                  // Email only
+                  Text(
+                    user.email,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      fontSize: 12,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            
+            // Actions Menu
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.more_vert,
+                size: 20,
+                color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+              ),
+              iconSize: 20,
+              padding: EdgeInsets.zero,
+              onSelected: (value) {
+                switch (value) {
+                  case 'view_tasks':
+                    context.push('/admin/users/${user.id}/tasks');
+                    break;
+                  case 'change_role':
+                    _showChangeRoleDialog(user);
+                    break;
+                  case 'revoke':
+                    _handleRevokeAccess(user);
+                    break;
+                  case 'restore':
+                    _handleRestoreAccess(user);
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'view_tasks',
+                  height: 40,
+                  child: Row(
+                    children: const [
+                      Icon(Icons.assignment_outlined, size: 16),
+                      SizedBox(width: 8),
+                      Text('View Tasks', style: TextStyle(fontSize: 14)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'change_role',
+                  height: 40,
+                  child: Text('Change Role', style: TextStyle(fontSize: 14)),
+                ),
+                if (!isRevoked)
+                  PopupMenuItem(
+                    value: 'revoke',
+                    height: 40,
+                    child: Text('Revoke Access', style: TextStyle(fontSize: 14)),
+                  )
+                else
+                  PopupMenuItem(
+                    value: 'restore',
+                    height: 40,
+                    child: Text('Restore Access', style: TextStyle(fontSize: 14)),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Compact role badge
+  Widget _buildCompactRoleBadge(UserRole role, ThemeData theme) {
+    final roleConfig = _getRoleConfig(role);
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 6,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: roleConfig['color'].withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        roleConfig['short'],
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: roleConfig['color'],
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _getRoleConfig(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return {'short': 'ADMIN', 'color': Colors.purple};
+      case UserRole.teamAdmin:
+        return {'short': 'TEAM', 'color': Colors.blue};
+      case UserRole.member:
+        return {'short': 'MEMBER', 'color': Colors.green};
+    }
   }
 
   String _getRoleText(UserRole role) {
@@ -399,17 +641,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         return 'Team Admin';
       case UserRole.member:
         return 'Member';
-    }
-  }
-
-  Color _getRoleColor(UserRole role, ThemeData theme) {
-    switch (role) {
-      case UserRole.superAdmin:
-        return Colors.purple;
-      case UserRole.teamAdmin:
-        return Colors.blue;
-      case UserRole.member:
-        return Colors.green;
     }
   }
 }
