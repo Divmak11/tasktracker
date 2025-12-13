@@ -41,6 +41,8 @@ class TaskModel {
   final String? calendarEventId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final DateTime? completedAt;
+  final String? completionRemark;
 
   TaskModel({
     required this.id,
@@ -54,6 +56,8 @@ class TaskModel {
     this.calendarEventId,
     this.createdAt,
     this.updatedAt,
+    this.completedAt,
+    this.completionRemark,
   });
 
   factory TaskModel.fromJson(Map<String, dynamic> json, String id) {
@@ -69,6 +73,8 @@ class TaskModel {
       calendarEventId: json['calendarEventId'] as String?,
       createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (json['updatedAt'] as Timestamp?)?.toDate(),
+      completedAt: (json['completedAt'] as Timestamp?)?.toDate(),
+      completionRemark: json['completionRemark'] as String?,
     );
   }
 
@@ -82,10 +88,19 @@ class TaskModel {
       'status': status.toJson(),
       'deadline': Timestamp.fromDate(deadline),
       if (calendarEventId != null) 'calendarEventId': calendarEventId,
-      'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : FieldValue.serverTimestamp(),
+      'createdAt':
+          createdAt != null
+              ? Timestamp.fromDate(createdAt!)
+              : FieldValue.serverTimestamp(),
+      'updatedAt':
+          updatedAt != null
+              ? Timestamp.fromDate(updatedAt!)
+              : FieldValue.serverTimestamp(),
+      if (completedAt != null) 'completedAt': Timestamp.fromDate(completedAt!),
+      if (completionRemark != null) 'completionRemark': completionRemark,
     };
   }
 
-  bool get isOverdue => deadline.isBefore(DateTime.now()) && status == TaskStatus.ongoing;
+  bool get isOverdue =>
+      deadline.isBefore(DateTime.now()) && status == TaskStatus.ongoing;
 }

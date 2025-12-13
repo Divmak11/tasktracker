@@ -188,4 +188,19 @@ class TaskRepository {
                   .toList(),
         );
   }
+
+  /// Get all active/ongoing tasks stream (for admin dashboard)
+  Stream<List<TaskModel>> getAllActiveTasksStream() {
+    return _firestore
+        .collection(_collection)
+        .where('status', isEqualTo: TaskStatus.ongoing.name)
+        .orderBy('deadline', descending: false)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs
+                  .map((doc) => TaskModel.fromJson(doc.data(), doc.id))
+                  .toList(),
+        );
+  }
 }

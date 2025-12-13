@@ -34,13 +34,12 @@ import '../constants/app_routes.dart';
 import '../../data/providers/auth_provider.dart';
 import '../../data/models/user_model.dart';
 
-final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
-
 class AppRouter {
   static GoRouter createRouter(AuthProvider authProvider) {
     return GoRouter(
-      navigatorKey: _rootNavigatorKey,
       initialLocation: '/', // Start at root, will redirect based on auth state
+      refreshListenable:
+          authProvider, // Re-evaluate redirect on auth state changes
       redirect: (context, state) {
         final isAuthenticated = authProvider.isAuthenticated;
         final currentUser = authProvider.currentUser;
@@ -52,7 +51,9 @@ class AppRouter {
         final isOnPendingPage = currentPath == AppRoutes.requestPending;
         final isOnRevokedPage = currentPath == AppRoutes.accessRevoked;
 
-        debugPrint('🔀 Router Redirect - Path: $currentPath, Auth: $isAuthenticated, Loading: $isLoading, User: ${currentUser?.email}');
+        debugPrint(
+          '🔀 Router Redirect - Path: $currentPath, Auth: $isAuthenticated, Loading: $isLoading, User: ${currentUser?.email}',
+        );
 
         // Show splash screen while loading auth state
         if (isLoading) {
@@ -86,10 +87,14 @@ class AppRouter {
         }
 
         // User is active - redirect from login/pending/revoked/splash to appropriate home
-        if (isOnLoginPage || isOnPendingPage || isOnRevokedPage || isOnSplashPage) {
-          final destination = currentUser.role == UserRole.superAdmin
-              ? AppRoutes.adminDashboard
-              : AppRoutes.home;
+        if (isOnLoginPage ||
+            isOnPendingPage ||
+            isOnRevokedPage ||
+            isOnSplashPage) {
+          final destination =
+              currentUser.role == UserRole.superAdmin
+                  ? AppRoutes.adminDashboard
+                  : AppRoutes.home;
           debugPrint('🔀 User active, redirecting to $destination');
           return destination;
         }
@@ -98,10 +103,7 @@ class AppRouter {
       },
       routes: [
         // Splash Screen (root)
-        GoRoute(
-          path: '/',
-          builder: (context, state) => const SplashScreen(),
-        ),
+        GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
         GoRoute(
           path: AppRoutes.login,
           builder: (context, state) => const LoginScreen(),
@@ -193,7 +195,12 @@ class AppRouter {
             ),
             GoRoute(
               path: AppRoutes.allTasks,
-              builder: (context, state) => const AllTasksScreen(),
+              builder: (context, state) {
+                // Support ?tab=0|1|2|3 to set initial tab (default: 1=Ongoing)
+                final tabParam = state.uri.queryParameters['tab'];
+                final initialTab = int.tryParse(tabParam ?? '1') ?? 1;
+                return AllTasksScreen(initialTabIndex: initialTab);
+              },
             ),
             GoRoute(
               path: AppRoutes.inviteUsers,

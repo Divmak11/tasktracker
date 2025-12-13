@@ -6,20 +6,16 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/team_model.dart';
-import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/cloud_functions_service.dart';
 import '../../data/providers/auth_provider.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
+import 'widgets/assignee_selection_screen.dart';
 
 // Extended enum for assignment type including Self
-enum AssignmentType {
-  member,
-  team,
-  self,
-}
+enum AssignmentType { member, team, self }
 
 class CreateTaskScreen extends StatefulWidget {
   const CreateTaskScreen({super.key});
@@ -32,23 +28,22 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _subtitleController = TextEditingController();
-  final _memberSearchController = TextEditingController();
   final _cloudFunctions = CloudFunctionsService();
-  final _userRepository = UserRepository();
   final _teamRepository = TeamRepository();
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   AssignmentType _assignmentType = AssignmentType.member;
-  String? _selectedAssigneeId;
-  String? _selectedAssigneeName;
-  final bool _isLoading = false;
+  // For multiple member selection
+  final List<UserModel> _selectedAssignees = [];
+  // For team selection (single)
+  String? _selectedTeamId;
+  bool _isLoading = false;
 
   @override
   void dispose() {
     _titleController.dispose();
     _subtitleController.dispose();
-    _memberSearchController.dispose();
     super.dispose();
   }
 
@@ -83,37 +78,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         return;
       }
 
-      // Get current user for 'self' assignment
-      final currentUser = context.read<AuthProvider>().currentUser;
-
-      // Determine assignee based on assignment type
-      String assigneeId;
-      String assignedTypeStr;
-
-      if (_assignmentType == AssignmentType.self) {
-        if (currentUser == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Unable to assign to self. Please login again.')),
-          );
-          return;
-        }
-        assigneeId = currentUser.id;
-        assignedTypeStr = 'member'; // Backend stores 'self' as 'member' type
-      } else {
-        if (_selectedAssigneeId == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please select an assignee')),
-          );
-          return;
-        }
-        assigneeId = _selectedAssigneeId!;
-        assignedTypeStr = _assignmentType.name;
-      }
-
-      // Get task title for notification (before clearing form)
-      final taskTitle = _titleController.text.trim();
-      final taskSubtitle = _subtitleController.text.trim();
-      
       // Combine date and time
       final deadline = DateTime(
         _selectedDate!.year,
@@ -123,30 +87,106 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         _selectedTime!.minute,
       );
 
-      // OPTIMISTIC UPDATE: Show success and navigate back immediately
-      NotificationService.showInAppNotification(
-        context,
-        title: 'Task Created',
-        message: 'Task "$taskTitle" created successfully',
-        icon: Icons.check_circle,
-        backgroundColor: Colors.green.shade700,
-      );
-      context.pop();
+      // Validate deadline is in the future
+      if (deadline.isBefore(DateTime.now())) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Deadline must be in the future'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
 
-      // Fire cloud function in background (don't await)
-      // Task will appear in list once Firestore updates
-      _cloudFunctions.assignTask(
-        title: taskTitle,
-        subtitle: taskSubtitle,
-        assignedType: assignedTypeStr,
-        assignedTo: assigneeId,
-        deadline: deadline,
-      ).catchError((error) {
-        // Can't show snackbar here since screen is popped, but task won't appear
-        // The user will notice task is missing and can recreate
-        debugPrint('Failed to create task: $error');
-        return <String, dynamic>{};
-      });
+      // Get current user for 'self' assignment
+      final currentUser = context.read<AuthProvider>().currentUser;
+
+      // Determine assignee based on assignment type
+      dynamic assigneeId; // Can be String or List<String>
+      String assignedTypeStr;
+
+      if (_assignmentType == AssignmentType.self) {
+        if (currentUser == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to assign to self. Please login again.'),
+            ),
+          );
+          return;
+        }
+        assigneeId = currentUser.id;
+        assignedTypeStr = 'member';
+      } else if (_assignmentType == AssignmentType.team) {
+        if (_selectedTeamId == null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Please select a team')));
+          return;
+        }
+        assigneeId = _selectedTeamId!;
+        assignedTypeStr = 'team';
+      } else {
+        // Member type - can be single or multiple
+        if (_selectedAssignees.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please select at least one assignee'),
+            ),
+          );
+          return;
+        }
+        // Send array if multiple, single string if one
+        assigneeId =
+            _selectedAssignees.length == 1
+                ? _selectedAssignees.first.id
+                : _selectedAssignees.map((u) => u.id).toList();
+        assignedTypeStr = 'member';
+      }
+
+      // Get task title for notification
+      final taskTitle = _titleController.text.trim();
+      final taskSubtitle = _subtitleController.text.trim();
+
+      // Show loading state
+      setState(() => _isLoading = true);
+
+      try {
+        // Wait for server response (no optimistic update)
+        await _cloudFunctions.assignTask(
+          title: taskTitle,
+          subtitle: taskSubtitle,
+          assignedType: assignedTypeStr,
+          assignedTo: assigneeId,
+          deadline: deadline,
+        );
+
+        if (mounted) {
+          NotificationService.showInAppNotification(
+            context,
+            title: 'Task Created',
+            message:
+                _selectedAssignees.length > 1
+                    ? 'Task assigned to ${_selectedAssignees.length} members'
+                    : 'Task "$taskTitle" created successfully',
+            icon: Icons.check_circle,
+            backgroundColor: Colors.green.shade700,
+          );
+          context.pop();
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to create task: $error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
     }
   }
 
@@ -223,20 +263,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           ),
                         ],
                         selected: {_assignmentType},
-                        onSelectionChanged: (
-                          Set<AssignmentType> newSelection,
-                        ) {
+                        onSelectionChanged: (Set<AssignmentType> newSelection) {
                           setState(() {
                             _assignmentType = newSelection.first;
-                            _selectedAssigneeId = null; // Reset selection
-                            _selectedAssigneeName = null;
-                            _memberSearchController.clear();
+                            _selectedAssignees.clear();
+                            _selectedTeamId = null;
                           });
                         },
                       ),
                       const SizedBox(height: AppSpacing.lg),
 
-                      // Assignee Dropdown (hide for 'Self')
+                      // Assignee Selection (hide for 'Self')
                       if (_assignmentType != AssignmentType.self) ...[
                         Text(
                           _assignmentType == AssignmentType.member
@@ -247,7 +284,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         const SizedBox(height: AppSpacing.sm),
 
                         _assignmentType == AssignmentType.member
-                            ? _buildMemberDropdown()
+                            ? _buildMemberSelector(theme, isDark)
                             : _buildTeamDropdown(),
 
                         const SizedBox(height: AppSpacing.lg),
@@ -379,167 +416,127 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 
-  Widget _buildMemberDropdown() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return StreamBuilder<List<UserModel>>(
-      stream: _userRepository.getAllUsersStream(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Text('Error: ${snapshot.error}');
-        }
-
-        if (!snapshot.hasData) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(AppSpacing.md),
-              child: CircularProgressIndicator(),
-            ),
-          );
-        }
-
-        final users =
-            snapshot.data!.where((u) => u.status == UserStatus.active).toList();
-
-        return Autocomplete<UserModel>(
-          optionsBuilder: (TextEditingValue textEditingValue) {
-            if (textEditingValue.text.isEmpty) {
-              // Show first 20 users when field is empty but focused
-              return users.take(20);
-            }
-            final query = textEditingValue.text.toLowerCase();
-            return users
-                .where((user) {
-                  return user.name.toLowerCase().contains(query) ||
-                      user.email.toLowerCase().contains(query);
-                })
-                .take(50); // Limit results for performance
-          },
-          displayStringForOption: (UserModel user) => user.name,
-          fieldViewBuilder: (
-            BuildContext context,
-            TextEditingController fieldController,
-            FocusNode focusNode,
-            VoidCallback onFieldSubmitted,
-          ) {
-            // Sync the field controller with selected value
-            if (_selectedAssigneeName != null && fieldController.text.isEmpty) {
-              fieldController.text = _selectedAssigneeName!;
-            }
-            return TextField(
-              controller: fieldController,
-              focusNode:
-                  focusNode, // Must use Autocomplete's focusNode for dropdown to work
-              decoration: InputDecoration(
-                hintText: 'Search by name or email...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon:
-                    _selectedAssigneeId != null
-                        ? IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              _selectedAssigneeId = null;
-                              _selectedAssigneeName = null;
-                              fieldController.clear();
-                            });
-                          },
-                        )
-                        : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.medium),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
+  /// Build the member selector UI with tap-to-open screen
+  Widget _buildMemberSelector(ThemeData theme, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Tap area to open selection screen
+        InkWell(
+          onTap: _openAssigneeSelector,
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          child: Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: isDark ? AppColors.neutral700 : AppColors.neutral300,
               ),
-            );
-          },
-          optionsViewBuilder: (
-            BuildContext context,
-            AutocompleteOnSelected<UserModel> onSelected,
-            Iterable<UserModel> options,
-          ) {
-            return Align(
-              alignment: Alignment.topLeft,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(AppRadius.medium),
-                child: Container(
-                  constraints: const BoxConstraints(maxHeight: 250),
-                  width:
-                      MediaQuery.of(context).size.width -
-                      (AppSpacing.screenPaddingMobile * 2),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.neutral800 : Colors.white,
-                    borderRadius: BorderRadius.circular(AppRadius.medium),
-                    border: Border.all(
+              borderRadius: BorderRadius.circular(AppRadius.medium),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.person_add_outlined,
+                  color: theme.colorScheme.primary,
+                  size: 22,
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Text(
+                    _selectedAssignees.isEmpty
+                        ? 'Tap to select assignees'
+                        : '${_selectedAssignees.length} assignee${_selectedAssignees.length > 1 ? 's' : ''} selected',
+                    style: theme.textTheme.bodyMedium?.copyWith(
                       color:
-                          isDark ? AppColors.neutral700 : AppColors.neutral200,
+                          _selectedAssignees.isEmpty
+                              ? (isDark
+                                  ? AppColors.neutral500
+                                  : AppColors.neutral400)
+                              : theme.colorScheme.onSurface,
+                      fontWeight:
+                          _selectedAssignees.isNotEmpty
+                              ? FontWeight.w500
+                              : FontWeight.normal,
                     ),
                   ),
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      final user = options.elementAt(index);
-                      final isSelected = _selectedAssigneeId == user.id;
-                      return ListTile(
-                        dense: true,
-                        selected: isSelected,
-                        selectedTileColor: theme.colorScheme.primaryContainer
-                            .withValues(alpha: 0.3),
-                        leading: CircleAvatar(
-                          radius: 16,
-                          backgroundColor: theme.colorScheme.primaryContainer,
-                          child: Text(
-                            user.name.isNotEmpty
-                                ? user.name[0].toUpperCase()
-                                : '?',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onPrimaryContainer,
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          user.name,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight:
-                                isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                          ),
-                        ),
-                        subtitle: Text(
-                          user.email,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color:
-                                isDark
-                                    ? AppColors.neutral400
-                                    : AppColors.neutral600,
-                          ),
-                        ),
-                        onTap: () => onSelected(user),
-                      );
-                    },
-                  ),
                 ),
-              ),
-            );
-          },
-          onSelected: (UserModel user) {
-            setState(() {
-              _selectedAssigneeId = user.id;
-              _selectedAssigneeName = user.name;
-            });
-          },
-        );
-      },
+                Icon(
+                  Icons.chevron_right,
+                  color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Selected assignees display
+        if (_selectedAssignees.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children:
+                _selectedAssignees.map((user) {
+                  return Chip(
+                    avatar: CircleAvatar(
+                      radius: 12,
+                      backgroundColor: theme.colorScheme.primaryContainer,
+                      backgroundImage:
+                          user.avatarUrl != null
+                              ? NetworkImage(user.avatarUrl!)
+                              : null,
+                      child:
+                          user.avatarUrl == null
+                              ? Text(
+                                user.name.isNotEmpty
+                                    ? user.name[0].toUpperCase()
+                                    : '?',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                ),
+                              )
+                              : null,
+                    ),
+                    label: Text(user.name, style: theme.textTheme.bodySmall),
+                    deleteIcon: Icon(
+                      Icons.close,
+                      size: 16,
+                      color:
+                          isDark ? AppColors.neutral400 : AppColors.neutral600,
+                    ),
+                    onDeleted: () {
+                      setState(() {
+                        _selectedAssignees.removeWhere((u) => u.id == user.id);
+                      });
+                    },
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  );
+                }).toList(),
+          ),
+        ],
+      ],
     );
+  }
+
+  /// Open the full-screen assignee selection
+  Future<void> _openAssigneeSelector() async {
+    final result = await Navigator.push<List<UserModel>>(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) =>
+                AssigneeSelectionScreen(initiallySelected: _selectedAssignees),
+      ),
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _selectedAssignees.clear();
+        _selectedAssignees.addAll(result);
+      });
+    }
   }
 
   Widget _buildTeamDropdown() {
@@ -561,7 +558,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
 
         return DropdownButtonFormField<String>(
-          value: _selectedAssigneeId,
+          value: _selectedTeamId,
           decoration: InputDecoration(
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(AppRadius.medium),
@@ -577,7 +574,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 return DropdownMenuItem(value: team.id, child: Text(team.name));
               }).toList(),
           onChanged: (value) {
-            setState(() => _selectedAssigneeId = value);
+            setState(() => _selectedTeamId = value);
           },
         );
       },

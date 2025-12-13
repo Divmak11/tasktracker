@@ -1,7 +1,7 @@
 # TODO Planner - CodeMap & Technical Reference
 
-**Version:** 1.0.2  
-**Last Updated:** 2025-12-09  
+**Version:** 1.0.5  
+**Last Updated:** 2025-12-12  
 **Project Version:** 1.0.0+1
 
 ---
@@ -825,6 +825,26 @@ await cloudFunctions.disconnectCalendar();
   - Verify Firestore indexes are created
   - Monitor `🔀 Router Redirect` debug logs
 
+**Issue**: Notification Screen Lag / Multiple Taps Required
+- **Symptom**: Notification taps unresponsive, multiple taps needed, lag when opening items.
+- **Cause**: `NotificationRepository()` created on every build; `await markAsRead()` blocked navigation.
+- **Solution**: ✅ **FIXED** (Dec 13, 2025)
+  1. Converted to `StatefulWidget` to cache `NotificationRepository`
+  2. Navigate immediately without awaiting `markAsRead`
+  3. Use fire-and-forget pattern for background operations
+  4. Changed from `context.watch` to `context.read` for auth
+- **Impact**: Instant tap response, smooth navigation
+
+**Issue**: Excessive Router Redirect Logs / Abrupt Redirections
+- **Symptom**: Router redirect logs (`🔀 Router Redirect`) appearing on every state change, not just navigation.
+- **Cause**: `GoRouter` was being recreated inside `Consumer2` on every `AuthProvider.notifyListeners()`.
+- **Solution**: ✅ **FIXED** (Dec 13, 2025)
+  1. Converted `MyApp` from `StatelessWidget` to `StatefulWidget` in `main.dart`
+  2. Cache `AuthProvider` and `GoRouter` instances in `initState()`
+  3. Use `refreshListenable: authProvider` in GoRouter to re-evaluate redirects on auth changes
+  4. Changed from `Consumer2` to `Consumer<ThemeProvider>` (only theme triggers rebuilds)
+- **Impact**: Router redirects now only trigger on actual navigation or auth state changes
+
 ---
 
 ## 13. Debugging Helpers
@@ -875,7 +895,8 @@ await cloudFunctions.disconnectCalendar();
 **Admin** (`lib/presentation/admin/`):
 | Screen | File | Purpose |
 |--------|------|---------|
-| Dashboard | `admin_dashboard_screen.dart` | Overview stats + Quick Actions (real-time) |
+| Dashboard | `admin_dashboard_screen.dart` | Overview stats + Quick Actions (real-time). "Active Tasks" navigates to Ongoing tab by default |
+| **All Tasks** | **`all_tasks_screen.dart`** | **Tabbed task view (All/Ongoing/Completed/Cancelled) with assignee filter. Default tab: Ongoing** |
 | Team Management | `team_management_screen.dart` | List all teams |
 | Create Team | `create_team_screen.dart` | Team creation form |
 | Team Detail | `team_detail_screen.dart` | View team members |
@@ -886,9 +907,10 @@ await cloudFunctions.disconnectCalendar();
 **Tasks** (`lib/presentation/tasks/`):
 | Screen | File | Purpose |
 |--------|------|---------|
-| Create Task | `create_task_screen.dart` | Task creation with member/team assignment |
-| Task Detail | `task_detail_screen.dart` | View task info with conditional actions |
+| Create Task | `create_task_screen.dart` | Task creation with member/team assignment (revamped with separate assignee selection) |
+| Task Detail | `task_detail_screen.dart` | View task info with conditional actions (revamped compact people section) |
 | **Edit Task** | **`edit_task_screen.dart`** | **Edit task title/description/deadline** |
+| **Assignee Selection** | **`widgets/assignee_selection_screen.dart`** | **Full-screen modal for multi-user selection** |
 
 **Other**:
 | Screen | File | Purpose |
@@ -908,6 +930,7 @@ await cloudFunctions.disconnectCalendar();
 | StatusBadge | `common/badges/status_badge.dart` | `status` | `StatusBadge(status: StatusType.ongoing)` |
 | TaskListItem | `common/list_items/task_list_item.dart` | `title`, `subtitle`, `deadline`, `status`, `assigneeName`, `onTap` | See Component Architecture |
 | **TaskCard** | **`home/widgets/task_card.dart`** | **`task`, `creator`** | **`TaskCard(task: taskModel, creator: userModel)`** |
+| **TaskTile** | **`common/list_items/task_tile.dart`** | **`task`, `assignee`, `creator`, `remarksCount`, `onTap`** | **Modern task tile with status, deadline, assignee info** |
 
 ### Utilities Catalog
 
@@ -1289,6 +1312,111 @@ final textColor = isDark ? AppColors.neutral300 : AppColors.neutral700;
   firebase functions:config:set app.super_admin_email="div.makar@gmail.com,ritesh@assomac.in"
   firebase deploy --only functions
   ```
+
+### 📋 Task Creation & Display Improvements (Dec 12, 2025)
+
+#### Multiple Assignees Support
+- **Feature**: Create Task now supports selecting multiple individual assignees
+- **Backend Change**: `assignTask` function in `src/controllers/taskController.ts` now accepts `assignedTo` as `string | string[]`
+- **Behavior**: When multiple assignees selected, creates separate tasks for each (similar to team assignment)
+- **Files Modified**:
+  - `lib/presentation/tasks/create_task_screen.dart` - Multi-select with chips UI
+  - `lib/data/services/cloud_functions_service.dart` - `assignedTo` accepts dynamic (String or List)
+  - `todo-backend/src/types/index.ts` - Updated `AssignTaskInput` type
+  - `todo-backend/src/controllers/taskController.ts` - Handles array of assignees
+
+#### Created Tab Assignee Display
+- **Feature**: 'Created' tab now shows assignee name instead of creator name
+- **Files Modified**:
+  - `lib/presentation/home/widgets/task_card.dart` - Added `assignee`, `showAssignee` props
+  - `lib/presentation/home/home_screen.dart` - Passes `showAssignee: true` for Created tab
+
+#### Completed Task Timestamps
+- **Feature**: Completed tasks now display both deadline and completion timestamp
+- **TaskModel Update**: Added `completedAt` and `completionRemark` fields
+- **UI**: Shows "Completed on time" or "Completed after deadline" indicator
+- **Files Modified**:
+  - `lib/data/models/task_model.dart` - Added `completedAt`, `completionRemark`
+  - `lib/presentation/tasks/task_detail_screen.dart` - Deadline info card with completion details
+
+#### Task Creation Validation Improvements
+- **Change**: Removed optimistic update pattern from task creation
+- **Behavior**: Now waits for server confirmation before showing success
+- **Validation**: Added check to prevent selecting past deadline time
+- **Files Modified**:
+  - `lib/presentation/tasks/create_task_screen.dart` - Synchronous submission with loading state
+
+### 📊 Dashboard & Task Display Improvements (Dec 12, 2025)
+
+#### Dashboard Active Tasks
+- **Change**: Dashboard stat card now shows 'Active Tasks' instead of 'Total Tasks'
+- **Behavior**: Only counts ongoing tasks, not completed/cancelled
+- **Files Modified**:
+  - `lib/presentation/admin/admin_dashboard_screen.dart` - Uses `getAllActiveTasksStream()`
+  - `lib/data/repositories/task_repository.dart` - Added `getAllActiveTasksStream()` method
+
+#### Task Tiles Show Creator & Assignee
+- **Feature**: Task cards now show both creator and assignee info
+- **UI**: New row with "Created by → Assigned to" format
+- **Files Modified**:
+  - `lib/presentation/home/widgets/task_card.dart` - Shows both creator and assignee
+  - `lib/presentation/home/home_screen.dart` - Always prefetches both user types
+
+#### User Filter for Task Tabs
+- **Feature**: Each tab (Ongoing, Past, Created) has a filter dropdown
+- **Behavior**: Filter by assignee - shows count per user, supports "All assignees"
+- **Files Modified**:
+  - `lib/presentation/home/home_screen.dart` - Added `_buildFilterableTaskList()` with filter state
+
+### 👥 Super Admin Team Creation Fix (Dec 12, 2025)
+- **Bug Fixed**: Super Admin was auto-added as Team Admin to every team they created
+- **New Behavior**: 
+  - Super Admin selects members first
+  - Then selects one of the members as Team Admin
+  - Super Admin is NOT auto-added to the team
+- **Files Modified**:
+  - `lib/presentation/admin/create_team_screen.dart` - Added Team Admin dropdown selector
+
+### 📅 Calendar Integration - Server Auth Code Flow (Dec 12, 2025)
+
+#### Problem Solved
+The previous implementation stored `idToken` as `googleRefreshToken`, which is incorrect.
+`idToken` is a JWT for identity verification, NOT a refresh token. This caused:
+- Calendar operations failing after ~1 hour (access token expiry)
+- Backend unable to refresh tokens when app is closed
+
+#### Solution: Server Auth Code Flow
+```
+1. App gets serverAuthCode via GoogleSignIn (with serverClientId)
+2. App sends serverAuthCode to backend Cloud Function
+3. Backend exchanges it for REAL access_token + refresh_token
+4. Backend stores tokens in Firestore
+5. Backend can now auto-refresh tokens anytime (even if app closed)
+```
+
+#### Files Modified
+**Backend:**
+- `src/services/calendarService.ts` - Added `exchangeCalendarAuthCode` Cloud Function
+- `src/index.ts` - Exported new function
+
+**Frontend:**
+- `lib/data/services/calendar_service.dart`:
+  - Added `serverClientId` configuration for auth code flow
+  - Updated `connect()` to use serverAuthCode and call backend
+  - Removed incorrect `idToken` storage as refresh token
+  - Added `_saveLocalTokens()` fallback method
+- `lib/data/services/cloud_functions_service.dart` - Added `exchangeCalendarAuthCode()`
+
+#### Configuration
+The Web Client ID is automatically read from `google-services.json` (`client_type: 3`).
+No additional configuration needed - it's hardcoded in `calendar_service.dart`.
+
+#### Existing Tasks Sync
+When a user connects their calendar, all existing ongoing tasks are automatically
+synced to Google Calendar (runs in background after token exchange).
+
+#### Other Fixes
+- Fixed timezone hardcoding to use device timezone (`DateTime.now().timeZoneName`)
 
 **Top-Level Rules**:
 1. **Absolute Paths**: Always use absolute paths for file operations.

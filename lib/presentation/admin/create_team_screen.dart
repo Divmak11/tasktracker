@@ -24,6 +24,7 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
   final _teamRepository = TeamRepository();
   final _userRepository = UserRepository();
   final Set<String> _selectedMembers = {};
+  String? _selectedAdminId; // Team Admin (must be one of the selected members)
   bool _isLoading = false;
 
   @override
@@ -41,19 +42,35 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
         return;
       }
 
+      if (_selectedAdminId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a Team Admin')),
+        );
+        return;
+      }
+
+      // Validate Team Admin is in members list
+      if (!_selectedMembers.contains(_selectedAdminId)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Team Admin must be a team member')),
+        );
+        return;
+      }
+
       setState(() => _isLoading = true);
 
       try {
         final currentUser = context.read<AuthProvider>().currentUser;
         if (currentUser == null) throw Exception('User not logged in');
 
-        // Create team model
+        // Create team model - Super Admin is NOT auto-added
+        // adminId is the selected Team Admin, not the Super Admin
         final team = TeamModel(
           id: '', // Will be set by Firestore
           name: _nameController.text.trim(),
-          adminId: currentUser.id,
+          adminId: _selectedAdminId!, // Selected Team Admin
           memberIds: _selectedMembers.toList(),
-          createdBy: currentUser.id,
+          createdBy: currentUser.id, // Super Admin who created it
           createdAt: DateTime.now(),
         );
 
@@ -154,45 +171,145 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
                             );
                           }
 
-                          return ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: users.length,
-                            itemBuilder: (context, index) {
-                              final user = users[index];
-                              final isSelected = _selectedMembers.contains(
-                                user.id,
-                              );
+                          // Get selected members as UserModel list for Team Admin dropdown
+                          final selectedMemberUsers =
+                              users
+                                  .where((u) => _selectedMembers.contains(u.id))
+                                  .toList();
 
-                              return CheckboxListTile(
-                                value: isSelected,
-                                onChanged: (value) {
-                                  setState(() {
-                                    if (value == true) {
-                                      _selectedMembers.add(user.id);
-                                    } else {
-                                      _selectedMembers.remove(user.id);
-                                    }
-                                  });
-                                },
-                                title: Text(user.name),
-                                subtitle: Text(user.email),
-                                secondary: CircleAvatar(
-                                  backgroundColor:
-                                      theme.colorScheme.primaryContainer,
-                                  child: Text(
-                                    user.name.isNotEmpty ? user.name[0] : '?',
-                                    style: TextStyle(
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Member selection list
+                              ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: users.length,
+                                itemBuilder: (context, index) {
+                                  final user = users[index];
+                                  final isSelected = _selectedMembers.contains(
+                                    user.id,
+                                  );
+                                  final isTeamAdmin =
+                                      _selectedAdminId == user.id;
+
+                                  return CheckboxListTile(
+                                    value: isSelected,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        if (value == true) {
+                                          _selectedMembers.add(user.id);
+                                        } else {
+                                          _selectedMembers.remove(user.id);
+                                          // Clear admin if removed from members
+                                          if (_selectedAdminId == user.id) {
+                                            _selectedAdminId = null;
+                                          }
+                                        }
+                                      });
+                                    },
+                                    title: Row(
+                                      children: [
+                                        Text(user.name),
+                                        if (isTeamAdmin) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  theme
+                                                      .colorScheme
+                                                      .primaryContainer,
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Admin',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color:
+                                                    theme
+                                                        .colorScheme
+                                                        .onPrimaryContainer,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
+                                    subtitle: Text(user.email),
+                                    secondary: CircleAvatar(
+                                      backgroundColor:
+                                          theme.colorScheme.primaryContainer,
+                                      child: Text(
+                                        user.name.isNotEmpty
+                                            ? user.name[0]
+                                            : '?',
+                                        style: TextStyle(
+                                          color:
+                                              theme
+                                                  .colorScheme
+                                                  .onPrimaryContainer,
+                                        ),
+                                      ),
+                                    ),
+                                    contentPadding: EdgeInsets.zero,
+                                    activeColor: theme.colorScheme.primary,
+                                    checkColor: theme.colorScheme.onPrimary,
+                                  );
+                                },
+                              ),
+
+                              // Team Admin Selector (only show when members are selected)
+                              if (_selectedMembers.isNotEmpty) ...[
+                                const SizedBox(height: AppSpacing.xl),
+                                Text(
+                                  'Select Team Admin',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: AppSpacing.xs),
+                                Text(
+                                  'Choose who will manage this team',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                                contentPadding: EdgeInsets.zero,
-                                activeColor: theme.colorScheme.primary,
-                                checkColor: theme.colorScheme.onPrimary,
-                              );
-                            },
+                                const SizedBox(height: AppSpacing.sm),
+                                DropdownButtonFormField<String>(
+                                  value: _selectedAdminId,
+                                  decoration: InputDecoration(
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  hint: const Text('Select Team Admin'),
+                                  items:
+                                      selectedMemberUsers.map((user) {
+                                        return DropdownMenuItem(
+                                          value: user.id,
+                                          child: Text(user.name),
+                                        );
+                                      }).toList(),
+                                  onChanged: (value) {
+                                    setState(() => _selectedAdminId = value);
+                                  },
+                                  validator: (value) {
+                                    if (value == null) {
+                                      return 'Please select a Team Admin';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ],
+                            ],
                           );
                         },
                       ),

@@ -116,12 +116,13 @@ class CloudFunctionsService {
   // TASK MANAGEMENT
   // ============================================
 
-  /// Assign a new task to a member or team
+  /// Assign a new task to a member, multiple members, or team
+  /// [assignedTo] can be a single ID (String) or list of IDs (List<String>)
   Future<Map<String, dynamic>> assignTask({
     required String title,
     required String subtitle,
     required String assignedType,
-    required String assignedTo,
+    required dynamic assignedTo, // String or List<String>
     required DateTime deadline,
   }) async {
     final callable = _functions.httpsCallable('assignTask');
@@ -334,6 +335,21 @@ class CloudFunctionsService {
       if (teamId != null) 'teamId': teamId,
       if (status != null) 'status': status,
     });
+    return Map<String, dynamic>.from(result.data);
+  }
+
+  // ============================================
+  // CALENDAR FUNCTIONS
+  // ============================================
+
+  /// Exchange Google OAuth auth code for access and refresh tokens.
+  ///
+  /// This is called after GoogleSignIn returns a serverAuthCode.
+  /// The backend exchanges this code for a REAL refresh_token that allows
+  /// automatic token refresh without user interaction.
+  Future<Map<String, dynamic>> exchangeCalendarAuthCode(String authCode) async {
+    final callable = _functions.httpsCallable('exchangeCalendarAuthCode');
+    final result = await callable.call({'authCode': authCode});
     return Map<String, dynamic>.from(result.data);
   }
 }

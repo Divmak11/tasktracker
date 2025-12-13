@@ -6,6 +6,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'cloud_functions_service.dart';
 
 /// Google Calendar integration service
+///
+/// Uses Server Auth Code flow for proper token management:
+/// 1. Mobile app gets serverAuthCode via GoogleSignIn
+/// 2. Backend exchanges it for REAL refresh_token
+/// 3. Backend can refresh tokens anytime (even when app is closed)
 class CalendarService {
   // Singleton pattern
   static final CalendarService _instance = CalendarService._internal();
@@ -13,10 +18,18 @@ class CalendarService {
   CalendarService._internal();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
 
-  // Google Sign-In with Calendar scope
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
+  // Web Client ID from google-services.json (client_type: 3)
+  // This enables getting serverAuthCode for backend token exchange
+  static const String _webClientId =
+      '1062148887754-5gjiqtggvt2bltnrbj9ovg11sc71rc84.apps.googleusercontent.com';
+
+  // Google Sign-In with Calendar scope and serverClientId for auth code flow
+  late final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', calendar.CalendarApi.calendarEventsScope],
+    // serverClientId enables getting serverAuthCode for backend token exchange
+    serverClientId: _webClientId,
   );
 
   GoogleSignInAccount? _currentAccount;
@@ -26,90 +39,176 @@ class CalendarService {
   bool get isConnected => _calendarApi != null;
 
   /// Refresh and persist latest Google access token if user already connected.
-  /// This keeps the backend token fresh so calendar events continue working.
+  ///
+  /// This is a fallback for when the app is active. The backend handles
+  /// automatic token refresh using the refresh_token obtained via serverAuthCode.
   Future<bool> refreshAccessToken(String userId) async {
+    debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] Starting for user=$userId');
+
     try {
       // Attempt silent sign-in to reuse existing consent
       _currentAccount = await _googleSignIn.signInSilently();
 
       if (_currentAccount == null) {
+        debugPrint(
+          '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in returned null',
+        );
         return false;
       }
+
+      debugPrint(
+        '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in SUCCESS '
+        'email=${_currentAccount!.email}',
+      );
 
       final auth = await _currentAccount!.authentication;
       if (auth.accessToken == null) {
+        debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] No access token available');
         return false;
       }
 
+      debugPrint(
+        '📅 [CALENDAR] [REFRESH_TOKEN] Got new access token '
+        '(preview=${auth.accessToken!.substring(0, 20)}...)',
+      );
+
+      // Update only the access token - backend manages refresh token
       await _firestore.collection('users').doc(userId).update({
         'googleCalendarConnected': true,
         'googleAccessToken': auth.accessToken,
-        if (auth.idToken != null) 'googleRefreshToken': auth.idToken,
       });
+
+      debugPrint(
+        '✅ [CALENDAR] [REFRESH_TOKEN] SUCCESS - Saved to Firestore for '
+        'user=$userId',
+      );
       return true;
     } catch (e) {
-      debugPrint('❌ Calendar: Token refresh failed - $e');
+      debugPrint('❌ [CALENDAR] [REFRESH_TOKEN] FAILED: $e');
       return false;
     }
   }
 
-  /// Connect to Google Calendar
+  /// Connect to Google Calendar using Server Auth Code flow
+  ///
+  /// This flow ensures the backend gets a REAL refresh_token that can be used
+  /// to refresh access tokens automatically, even when the app is closed.
   Future<bool> connect(String userId) async {
+    debugPrint('📅 [CALENDAR] [CONNECT] Starting for user=$userId');
+    debugPrint('📅 [CALENDAR] [CONNECT] Using webClientId=$_webClientId');
+
     try {
       // Sign in with Google (will prompt for Calendar permission)
+      debugPrint('📅 [CALENDAR] [CONNECT] Initiating GoogleSignIn...');
       _currentAccount = await _googleSignIn.signIn();
 
       if (_currentAccount == null) {
-        debugPrint('❌ Calendar: User cancelled sign-in');
+        debugPrint('❌ [CALENDAR] [CONNECT] User cancelled sign-in');
         return false;
       }
 
-      // Get auth headers
-      final auth = await _currentAccount!.authentication;
+      debugPrint('📅 [CALENDAR] [CONNECT] GoogleSignIn SUCCESS');
+      debugPrint('📅 [CALENDAR] [CONNECT] email=${_currentAccount!.email}');
+      debugPrint(
+        '📅 [CALENDAR] [CONNECT] '
+        'hasServerAuthCode=${_currentAccount!.serverAuthCode != null}',
+      );
 
-      // Create authenticated HTTP client
+      // Get auth headers for local calendar operations
+      final auth = await _currentAccount!.authentication;
+      debugPrint(
+        '📅 [CALENDAR] [CONNECT] '
+        'hasAccessToken=${auth.accessToken != null}, '
+        'hasIdToken=${auth.idToken != null}',
+      );
+
+      // Create authenticated HTTP client for local use
       final authenticatedClient = _GoogleAuthClient(
         await _currentAccount!.authHeaders,
       );
 
-      // Initialize Calendar API
+      // Initialize Calendar API for local operations
       _calendarApi = calendar.CalendarApi(authenticatedClient);
 
-      // Save connection status and tokens to Firestore
-      // Backend uses these tokens to create calendar events for assigned tasks
-      final updateData = {
-        'googleCalendarConnected': true,
-        'googleAccessToken': auth.accessToken,
-        // idToken can be used as a fallback refresh mechanism
-        'googleRefreshToken': auth.idToken ?? auth.accessToken,
-      };
+      // SERVER AUTH CODE FLOW:
+      // If we have a serverAuthCode, send it to backend for proper token exchange
+      // This is the key to getting a REAL refresh_token
+      final serverAuthCode = _currentAccount!.serverAuthCode;
 
-      debugPrint('📅 Calendar: Saving tokens to Firestore for user $userId');
-      await _firestore.collection('users').doc(userId).update(updateData);
+      if (serverAuthCode != null && serverAuthCode.isNotEmpty) {
+        debugPrint(
+          '📅 [CALENDAR] [CONNECT] Got serverAuthCode '
+          '(length=${serverAuthCode.length})',
+        );
+        debugPrint(
+          '📅 [CALENDAR] [CONNECT] Calling backend exchangeCalendarAuthCode...',
+        );
 
-      debugPrint('✅ Calendar: Connected successfully with tokens saved');
+        try {
+          final result = await _cloudFunctions.exchangeCalendarAuthCode(
+            serverAuthCode,
+          );
+          final hasRefreshToken = result['hasRefreshToken'] == true;
+          debugPrint(
+            '✅ [CALENDAR] [CONNECT] Backend token exchange SUCCESS '
+            'hasRefreshToken=$hasRefreshToken',
+          );
+        } catch (e) {
+          // Log but don't fail - we can still use local tokens
+          debugPrint('⚠️ [CALENDAR] [CONNECT] Backend exchange FAILED: $e');
+          debugPrint('📅 [CALENDAR] [CONNECT] Falling back to local tokens...');
+          await _saveLocalTokens(userId, auth.accessToken);
+        }
+      } else {
+        // No serverAuthCode received (rare edge case)
+        debugPrint(
+          '⚠️ [CALENDAR] [CONNECT] No serverAuthCode received! '
+          'Check if webClientId is correct.',
+        );
+        await _saveLocalTokens(userId, auth.accessToken);
+      }
+
+      debugPrint('✅ [CALENDAR] [CONNECT] COMPLETE for user=$userId');
       return true;
-    } catch (e) {
-      debugPrint('❌ Calendar: Connection failed - $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ [CALENDAR] [CONNECT] FAILED: $e');
+      debugPrint('❌ [CALENDAR] [CONNECT] StackTrace: $stackTrace');
       return false;
     }
   }
 
+  /// Save tokens locally when serverAuthCode flow is not available
+  Future<void> _saveLocalTokens(String userId, String? accessToken) async {
+    if (accessToken == null) return;
+
+    await _firestore.collection('users').doc(userId).update({
+      'googleCalendarConnected': true,
+      'googleAccessToken': accessToken,
+    });
+    debugPrint('📅 Calendar: Saved local access token for user $userId');
+  }
+
   /// Disconnect from Google Calendar via Cloud Function
   Future<void> disconnect(String userId) async {
+    debugPrint('📅 [CALENDAR] [DISCONNECT] Starting for user=$userId');
+
     try {
       // Sign out locally first
+      debugPrint('📅 [CALENDAR] [DISCONNECT] Signing out locally...');
       await _googleSignIn.signOut();
       _currentAccount = null;
       _calendarApi = null;
 
       // Call Cloud Function to delete calendar events and clear tokens
+      debugPrint(
+        '📅 [CALENDAR] [DISCONNECT] Calling backend to delete events...',
+      );
       final cloudFunctions = CloudFunctionsService();
       await cloudFunctions.disconnectCalendar();
 
-      debugPrint('✅ Calendar: Disconnected');
+      debugPrint('✅ [CALENDAR] [DISCONNECT] SUCCESS for user=$userId');
     } catch (e) {
-      debugPrint('❌ Calendar: Disconnect failed - $e');
+      debugPrint('❌ [CALENDAR] [DISCONNECT] FAILED: $e');
       // Still update local state even if cloud function fails
       _currentAccount = null;
       _calendarApi = null;
@@ -132,16 +231,19 @@ class CalendarService {
       // Create event with deadline as end time, 1 hour duration
       final startTime = deadline.subtract(const Duration(hours: 1));
 
+      // Get device timezone
+      final timeZone = DateTime.now().timeZoneName;
+
       final event = calendar.Event(
         summary: title,
         description: description,
         start: calendar.EventDateTime(
-          dateTime: startTime,
-          timeZone: 'Asia/Kolkata', // Adjust based on user's timezone
+          dateTime: startTime.toUtc(),
+          timeZone: timeZone,
         ),
         end: calendar.EventDateTime(
-          dateTime: deadline,
-          timeZone: 'Asia/Kolkata',
+          dateTime: deadline.toUtc(),
+          timeZone: timeZone,
         ),
         reminders: calendar.EventReminders(
           useDefault: false,
@@ -188,13 +290,14 @@ class CalendarService {
       if (description != null) existingEvent.description = description;
       if (deadline != null) {
         final startTime = deadline.subtract(const Duration(hours: 1));
+        final timeZone = DateTime.now().timeZoneName;
         existingEvent.start = calendar.EventDateTime(
-          dateTime: startTime,
-          timeZone: 'Asia/Kolkata',
+          dateTime: startTime.toUtc(),
+          timeZone: timeZone,
         );
         existingEvent.end = calendar.EventDateTime(
-          dateTime: deadline,
-          timeZone: 'Asia/Kolkata',
+          dateTime: deadline.toUtc(),
+          timeZone: timeZone,
         );
       }
 

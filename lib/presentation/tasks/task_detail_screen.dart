@@ -14,7 +14,6 @@ import '../../data/repositories/remark_repository.dart';
 import '../../data/providers/auth_provider.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/cloud_functions_service.dart';
-import '../common/cards/app_card.dart';
 import '../common/buttons/app_button.dart';
 import 'widgets/add_remark_dialog.dart';
 import 'widgets/remark_item.dart';
@@ -65,38 +64,133 @@ class TaskDetailScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Status and Deadline
-                      Row(
-                        children: [
-                          _buildStatusBadge(task),
-                          const Spacer(),
-                          Icon(
-                            Icons.calendar_today_outlined,
-                            size: 16,
+                      // Status Badge
+                      _buildStatusBadge(task),
+                      const SizedBox(height: AppSpacing.md),
+
+                      // Deadline Info Card
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color:
+                              isDark
+                                  ? AppColors.neutral900
+                                  : AppColors.neutral50,
+                          borderRadius: BorderRadius.circular(AppRadius.medium),
+                          border: Border.all(
                             color:
-                                task.isOverdue
-                                    ? Colors.red
-                                    : (isDark
-                                        ? AppColors.neutral400
-                                        : AppColors.neutral600),
+                                isDark
+                                    ? AppColors.neutral800
+                                    : AppColors.neutral200,
                           ),
-                          const SizedBox(width: AppSpacing.xs),
-                          Text(
-                            DateFormat('MMM d, h:mm a').format(task.deadline),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color:
-                                  task.isOverdue
-                                      ? Colors.red
-                                      : (isDark
-                                          ? AppColors.neutral400
-                                          : AppColors.neutral600),
-                              fontWeight:
-                                  task.isOverdue
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
+                        ),
+                        child: Column(
+                          children: [
+                            // Original Deadline
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.calendar_today_outlined,
+                                  size: 18,
+                                  color:
+                                      task.isOverdue &&
+                                              task.status == TaskStatus.ongoing
+                                          ? Colors.red
+                                          : (isDark
+                                              ? AppColors.neutral400
+                                              : AppColors.neutral600),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Text(
+                                  'Deadline:',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color:
+                                        isDark
+                                            ? AppColors.neutral400
+                                            : AppColors.neutral600,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.xs),
+                                Expanded(
+                                  child: Text(
+                                    DateFormat(
+                                      'MMM d, yyyy • h:mm a',
+                                    ).format(task.deadline),
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color:
+                                          task.isOverdue &&
+                                                  task.status ==
+                                                      TaskStatus.ongoing
+                                              ? Colors.red
+                                              : theme.colorScheme.onSurface,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                            // Completed At (only for completed tasks)
+                            if (task.status == TaskStatus.completed &&
+                                task.completedAt != null) ...[
+                              const SizedBox(height: AppSpacing.sm),
+                              const Divider(height: 1),
+                              const SizedBox(height: AppSpacing.sm),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.check_circle_outline,
+                                    size: 18,
+                                    color: Colors.green,
+                                  ),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Text(
+                                    'Completed:',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color:
+                                          isDark
+                                              ? AppColors.neutral400
+                                              : AppColors.neutral600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: AppSpacing.xs),
+                                  Expanded(
+                                    child: Text(
+                                      DateFormat(
+                                        'MMM d, yyyy • h:mm a',
+                                      ).format(task.completedAt!),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: Colors.green,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              // Show if completed on time or late
+                              const SizedBox(height: AppSpacing.xs),
+                              Row(
+                                children: [
+                                  const SizedBox(width: 26), // Align with text
+                                  Text(
+                                    task.completedAt!.isBefore(task.deadline)
+                                        ? '✓ Completed on time'
+                                        : '⚠ Completed after deadline',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color:
+                                          task.completedAt!.isBefore(
+                                                task.deadline,
+                                              )
+                                              ? Colors.green
+                                              : Colors.orange,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                       const SizedBox(height: AppSpacing.lg),
 
@@ -131,92 +225,78 @@ class TaskDetailScreen extends StatelessWidget {
                         const SizedBox(height: AppSpacing.xl),
                       ],
 
-                      // Assigned To
+                      // People Section - Compact Layout
                       Text(
-                        'Assigned To',
+                        'People',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      StreamBuilder<UserModel?>(
-                        stream: userRepository.getUserStream(task.assignedTo),
-                        builder: (context, assigneeSnapshot) {
-                          final assignee = assigneeSnapshot.data;
-                          return AppCard(
-                            type: AppCardType.standard,
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    theme.colorScheme.primaryContainer,
-                                child: Text(
-                                  assignee?.name.isNotEmpty == true
-                                      ? assignee!.name[0]
-                                      : '?',
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onPrimaryContainer,
-                                  ),
-                                ),
+
+                      // Compact people container
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color:
+                              isDark
+                                  ? AppColors.neutral900
+                                  : AppColors.neutral50,
+                          borderRadius: BorderRadius.circular(AppRadius.medium),
+                          border: Border.all(
+                            color:
+                                isDark
+                                    ? AppColors.neutral800
+                                    : AppColors.neutral200,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            // Assigned To Row
+                            StreamBuilder<UserModel?>(
+                              stream: userRepository.getUserStream(
+                                task.assignedTo,
                               ),
-                              title: Text(assignee?.name ?? 'Loading...'),
-                              subtitle: Text(
-                                assignee != null
-                                    ? _getRoleText(assignee.role)
-                                    : '',
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.md,
-                                vertical: AppSpacing.xs,
-                              ),
+                              builder: (context, assigneeSnapshot) {
+                                final assignee = assigneeSnapshot.data;
+                                return _buildCompactUserRow(
+                                  context,
+                                  label: 'Assigned to',
+                                  user: assignee,
+                                  color: theme.colorScheme.primary,
+                                  icon: Icons.person,
+                                );
+                              },
                             ),
-                          );
-                        },
+                            const SizedBox(height: AppSpacing.sm),
+                            Divider(
+                              height: 1,
+                              color:
+                                  isDark
+                                      ? AppColors.neutral800
+                                      : AppColors.neutral200,
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            // Created By Row
+                            StreamBuilder<UserModel?>(
+                              stream: userRepository.getUserStream(
+                                task.createdBy,
+                              ),
+                              builder: (context, creatorSnapshot) {
+                                final creator = creatorSnapshot.data;
+                                return _buildCompactUserRow(
+                                  context,
+                                  label: 'Created by',
+                                  user: creator,
+                                  color: Colors.orange,
+                                  icon: Icons.create,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: AppSpacing.lg),
-
-                      // Created By
-                      Text(
-                        'Created By',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      StreamBuilder<UserModel?>(
-                        stream: userRepository.getUserStream(task.createdBy),
-                        builder: (context, creatorSnapshot) {
-                          final creator = creatorSnapshot.data;
-                          return AppCard(
-                            type: AppCardType.standard,
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    theme.colorScheme.secondaryContainer,
-                                child: Text(
-                                  creator?.name.isNotEmpty == true
-                                      ? creator!.name[0]
-                                      : '?',
-                                  style: TextStyle(
-                                    color:
-                                        theme.colorScheme.onSecondaryContainer,
-                                  ),
-                                ),
-                              ),
-                              title: Text(creator?.name ?? '[Deleted User]'),
-                              subtitle: Text(
-                                creator != null
-                                    ? _getRoleText(creator.role)
-                                    : '',
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.md,
-                                vertical: AppSpacing.xs,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
 
                       // Remarks Section
                       Row(
@@ -511,7 +591,86 @@ class TaskDetailScreen extends StatelessWidget {
     );
   }
 
-  String _getRoleText(UserRole role) {
+  Widget _buildCompactUserRow(
+    BuildContext context, {
+    required String label,
+    required UserModel? user,
+    required Color color,
+    required IconData icon,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Row(
+      children: [
+        // Icon with color accent
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(icon, size: 16, color: color),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        // Label
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: isDark ? AppColors.neutral500 : AppColors.neutral500,
+          ),
+        ),
+        const Spacer(),
+        // User info
+        if (user != null) ...[
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: color.withValues(alpha: 0.2),
+            backgroundImage:
+                user.avatarUrl != null ? NetworkImage(user.avatarUrl!) : null,
+            child:
+                user.avatarUrl == null
+                    ? Text(
+                      user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    )
+                    : null,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                user.name,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                _getRoleLabel(user.role),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: isDark ? AppColors.neutral500 : AppColors.neutral500,
+                ),
+              ),
+            ],
+          ),
+        ] else ...[
+          Text(
+            'Loading...',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _getRoleLabel(UserRole role) {
     switch (role) {
       case UserRole.superAdmin:
         return 'Super Admin';
@@ -566,9 +725,10 @@ class TaskDetailScreen extends StatelessWidget {
         // Show error with retry if background sync fails
         // UI will naturally revert via Firestore stream since server wasn't updated
         if (context.mounted) {
-          final message = error is FirebaseFunctionsException 
-              ? error.message ?? error.code 
-              : error.toString();
+          final message =
+              error is FirebaseFunctionsException
+                  ? error.message ?? error.code
+                  : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to sync: $message'),
@@ -631,9 +791,10 @@ class TaskDetailScreen extends StatelessWidget {
       cloudFunctions.cancelTask(task.id).catchError((error) {
         // Show error with retry if background sync fails
         if (context.mounted) {
-          final message = error is FirebaseFunctionsException 
-              ? error.message ?? error.code 
-              : error.toString();
+          final message =
+              error is FirebaseFunctionsException
+                  ? error.message ?? error.code
+                  : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to sync: $message'),

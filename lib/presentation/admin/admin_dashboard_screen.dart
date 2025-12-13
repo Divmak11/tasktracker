@@ -34,7 +34,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // Cache streams to avoid creating new subscriptions
   late final Stream<List<UserModel>> _usersStream;
   late final Stream<List<TeamModel>> _teamsStream;
-  late final Stream<List<TaskModel>> _tasksStream;
+  late final Stream<List<TaskModel>> _activeTasksStream;
   late final Stream<List<ApprovalRequestModel>> _rescheduleRequestsStream;
   late final Stream<List<TaskModel>> _overdueTasksStream;
 
@@ -46,7 +46,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     super.initState();
     _usersStream = _userRepository.getAllUsersStream();
     _teamsStream = _teamRepository.getAllTeamsStream();
-    _tasksStream = _taskRepository.getAllTasksStream();
+    _activeTasksStream = _taskRepository.getAllActiveTasksStream();
     _rescheduleRequestsStream = _approvalRepository
         .getAllRescheduleRequestsStream(status: ApprovalRequestStatus.pending);
     _overdueTasksStream = _taskRepository.getOverdueTasksStream();
@@ -81,7 +81,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   stream: _teamsStream,
                   builder: (context, teamsSnapshot) {
                     return StreamBuilder<List<TaskModel>>(
-                      stream: _tasksStream,
+                      stream: _activeTasksStream,
                       builder: (context, tasksSnapshot) {
                         // Calculate metrics
                         final totalUsers = usersSnapshot.data?.length ?? 0;
@@ -91,7 +91,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                 .length ??
                             0;
                         final activeTeams = teamsSnapshot.data?.length ?? 0;
-                        final totalTasks = tasksSnapshot.data?.length ?? 0;
+                        final activeTasks = tasksSnapshot.data?.length ?? 0;
 
                         // Show loading state
                         if (!usersSnapshot.hasData ||
@@ -110,7 +110,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           totalUsers: totalUsers,
                           activeTeams: activeTeams,
                           pendingRequests: pendingRequests,
-                          totalTasks: totalTasks,
+                          activeTasks: activeTasks,
                         );
                       },
                     );
@@ -269,7 +269,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     int totalUsers = 0,
     int activeTeams = 0,
     int pendingRequests = 0,
-    int totalTasks = 0,
+    int activeTasks = 0,
   }) {
     // Calculate responsive aspect ratio based on screen width
     // Lower ratio = taller cards to prevent overflow
@@ -308,8 +308,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         _buildStatCard(
           context,
-          'Total Tasks',
-          isLoading ? null : '$totalTasks',
+          'Active Tasks',
+          isLoading ? null : '$activeTasks',
           Icons.task_outlined,
           onTap: () => context.push(AppRoutes.allTasks),
         ),

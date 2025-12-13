@@ -40,8 +40,13 @@ class _HomeScreenState extends State<HomeScreen>
   Stream<int>? _unreadCountStream;
   Stream<List<ApprovalRequestModel>>? _pendingReschedulesStream;
 
-  // Cache user data to avoid N+1 queries
+  // Cache user data to avoid N+1 queries (for creators and assignees)
   final Map<String, UserModel?> _userCache = {};
+
+  // Filter state for each tab - stores selected assignee ID
+  String? _ongoingFilterUserId;
+  String? _pastFilterUserId;
+  String? _createdFilterUserId;
 
   static const String _calendarGuideShownKey = 'calendar_guide_shown';
 
@@ -292,102 +297,221 @@ class _HomeScreenState extends State<HomeScreen>
         controller: _tabController,
         children: [
           // Ongoing Tasks Tab
-          _buildTaskList(
+          _buildFilterableTaskList(
             context,
             stream: _getOngoingStream(currentUser.id),
             emptyMessage: 'No ongoing tasks',
+            selectedUserId: _ongoingFilterUserId,
+            onFilterChanged:
+                (userId) => setState(() => _ongoingFilterUserId = userId),
           ),
 
           // Past Tasks Tab
-          _buildTaskList(
+          _buildFilterableTaskList(
             context,
             stream: _getPastStream(currentUser.id),
             emptyMessage: 'No past tasks',
+            selectedUserId: _pastFilterUserId,
+            onFilterChanged:
+                (userId) => setState(() => _pastFilterUserId = userId),
           ),
 
           // Created Tasks Tab
-          _buildTaskList(
+          _buildFilterableTaskList(
             context,
             stream: _getCreatedStream(currentUser.id),
             emptyMessage: 'No tasks created by you',
+            selectedUserId: _createdFilterUserId,
+            onFilterChanged:
+                (userId) => setState(() => _createdFilterUserId = userId),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTaskList(
+  Widget _buildFilterableTaskList(
     BuildContext context, {
     required Stream<List<TaskModel>> stream,
     required String emptyMessage,
+    required String? selectedUserId,
+    required ValueChanged<String?> onFilterChanged,
   }) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        // Force stream refresh
-        setState(() {});
-        await Future.delayed(const Duration(milliseconds: 500));
-      },
-      child: StreamBuilder<List<TaskModel>>(
-        stream: stream,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    'Error loading tasks',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    '${snapshot.error}',
-                    style: theme.textTheme.bodySmall,
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final tasks = snapshot.data!;
-
-          if (tasks.isEmpty) {
-            return _buildEmptyState(context, emptyMessage);
-          }
-
-          // Prefetch all unique creator IDs to avoid N+1 queries
-          final creatorIds = tasks.map((t) => t.createdBy).toSet();
-
-          return FutureBuilder<void>(
-            future: _prefetchUsers(creatorIds),
-            builder: (context, _) {
-              return ListView.separated(
-                padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
-                itemCount: tasks.length,
-                separatorBuilder:
-                    (context, index) => const SizedBox(height: AppSpacing.md),
-                itemBuilder: (context, index) {
-                  final task = tasks[index];
-                  // Use cached user instead of creating new StreamBuilder
-                  return TaskCard(
-                    task: task,
-                    creator: _userCache[task.createdBy],
-                  );
-                },
-              );
-            },
+    return StreamBuilder<List<TaskModel>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Error: ${snapshot.error}',
+              style: theme.textTheme.bodyMedium?.copyWith(color: Colors.red),
+            ),
           );
-        },
-      ),
+        }
+
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final tasks = snapshot.data!;
+
+        if (tasks.isEmpty) {
+          return _buildEmptyState(context, emptyMessage);
+        }
+
+        // Prefetch all unique user IDs (creators and assignees)
+        final userIds = <String>{
+          ...tasks.map((t) => t.createdBy),
+          ...tasks.map((t) => t.assignedTo),
+        };
+
+        // Get unique assignees for filter dropdown
+        final uniqueAssigneeIds =
+            tasks.map((t) => t.assignedTo).toSet().toList();
+
+        // Apply filter if specified
+        final filteredTasks =
+            selectedUserId != null
+                ? tasks.where((t) => t.assignedTo == selectedUserId).toList()
+                : tasks;
+
+        return FutureBuilder<void>(
+          future: _prefetchUsers(userIds),
+          builder: (context, _) {
+            // Build filter dropdown items from cached users
+            final filterUsers =
+                uniqueAssigneeIds
+                    .map((id) => _userCache[id])
+                    .whereType<UserModel>()
+                    .toList();
+
+            return Column(
+              children: [
+                // Filter dropdown row (only show if more than 1 assignee)
+                if (filterUsers.length > 1)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPaddingMobile,
+                      vertical: AppSpacing.sm,
+                    ),
+                    decoration: BoxDecoration(
+                      color:
+                          isDark ? AppColors.neutral900 : AppColors.neutral50,
+                      border: Border(
+                        bottom: BorderSide(
+                          color:
+                              isDark
+                                  ? AppColors.neutral800
+                                  : AppColors.neutral200,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.filter_list,
+                          size: 18,
+                          color:
+                              isDark
+                                  ? AppColors.neutral400
+                                  : AppColors.neutral600,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Text(
+                          'Filter by:',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color:
+                                isDark
+                                    ? AppColors.neutral400
+                                    : AppColors.neutral600,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String?>(
+                              value: selectedUserId,
+                              isDense: true,
+                              isExpanded: true,
+                              hint: Text(
+                                'All assignees',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                              items: [
+                                DropdownMenuItem<String?>(
+                                  value: null,
+                                  child: Text(
+                                    'All assignees (${tasks.length})',
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                ),
+                                ...filterUsers.map((user) {
+                                  final count =
+                                      tasks
+                                          .where((t) => t.assignedTo == user.id)
+                                          .length;
+                                  return DropdownMenuItem<String?>(
+                                    value: user.id,
+                                    child: Text(
+                                      '${user.name} ($count)',
+                                      style: theme.textTheme.bodySmall,
+                                    ),
+                                  );
+                                }),
+                              ],
+                              onChanged: onFilterChanged,
+                            ),
+                          ),
+                        ),
+                        if (selectedUserId != null)
+                          IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () => onFilterChanged(null),
+                          ),
+                      ],
+                    ),
+                  ),
+                // Task list
+                Expanded(
+                  child:
+                      filteredTasks.isEmpty
+                          ? _buildEmptyState(context, 'No tasks match filter')
+                          : RefreshIndicator(
+                            onRefresh: () async {
+                              setState(() {});
+                              await Future.delayed(
+                                const Duration(milliseconds: 500),
+                              );
+                            },
+                            child: ListView.separated(
+                              padding: const EdgeInsets.all(
+                                AppSpacing.screenPaddingMobile,
+                              ),
+                              itemCount: filteredTasks.length,
+                              separatorBuilder:
+                                  (context, index) =>
+                                      const SizedBox(height: AppSpacing.md),
+                              itemBuilder: (context, index) {
+                                final task = filteredTasks[index];
+                                return TaskCard(
+                                  task: task,
+                                  creator: _userCache[task.createdBy],
+                                  assignee: _userCache[task.assignedTo],
+                                );
+                              },
+                            ),
+                          ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
