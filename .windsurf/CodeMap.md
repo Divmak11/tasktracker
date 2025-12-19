@@ -1,7 +1,7 @@
 # TODO Planner - CodeMap & Technical Reference
 
-**Version:** 1.0.5  
-**Last Updated:** 2025-12-12  
+**Version:** 1.0.12  
+**Last Updated:** 2025-12-17  
 **Project Version:** 1.0.0+1
 
 ---
@@ -109,17 +109,54 @@ lib/
 - `teamIds` (array<string>): IDs of teams user belongs to
 - `status` (string): 'pending' | 'active' | 'revoked'
 - `googleCalendarConnected` (boolean): OAuth status
+- `revokedBy` (string, optional): Admin ID who revoked access
+- `revokedAt` (timestamp, optional): When access was revoked
+- `restoredBy` (string, optional): Admin ID who restored access
+- `restoredAt` (timestamp, optional): When access was restored
+
+#### Deleted Users Collection (Audit Log)
+**Path:** `/deleted_users/{originalUserId}`
+- All fields from original user document, plus:
+- `deletedAt` (timestamp): When account was deleted
+- `deletedBy` (string): User ID who performed deletion (self or admin)
+- `deletionReason` (string): 'User self-deleted' | 'Admin deleted'
+- `originalUserId` (string): Original Firebase Auth UID
 
 #### Tasks Collection
 **Path:** `/tasks/{taskId}`
+
+**Core Fields:**
 - `id` (string): UUID
 - `title` (string): Task title
 - `subtitle` (string): Description
-- `assignedTo` (string): User ID or Team ID
 - `assignedType` (string): 'member' | 'team'
+- `createdBy` (string): User ID of task creator
 - `status` (string): 'ongoing' | 'completed' | 'cancelled'
 - `deadline` (timestamp): Due date
-- `calendarEventId` (string): Google Calendar Event ID
+- `createdAt` (timestamp): Creation timestamp
+- `updatedAt` (timestamp): Last update timestamp
+
+**Legacy Single-Assignee Fields** (for backward compatibility):
+- `assignedTo` (string, optional): User ID (for old single-assignee tasks)
+- `calendarEventId` (string, optional): Google Calendar Event ID
+- `completedAt` (timestamp, optional): Completion timestamp
+- `completionRemark` (string, optional): Completion note
+
+**Multi-Assignee Fields** (new structure):
+- `isMultiAssignee` (boolean): True for tasks with 2+ assignees
+- `assigneeIds` (array<string>): List of all assigned user IDs
+- `supervisorIds` (array<string>): Users who can view all assignees' status
+- `sourceTeamId` (string, optional): Original team ID if assigned to team
+- `taskGroupId` (string, optional): Links related tasks from same team assignment
+
+**Subcollection:** `/tasks/{taskId}/assignments/{assignmentId}`
+- `id` (string): Assignment document ID
+- `userId` (string): Assigned user ID
+- `status` (string): 'ongoing' | 'completed'
+- `assignedAt` (timestamp): Assignment timestamp
+- `completedAt` (timestamp, optional): When this user completed
+- `completionRemark` (string, optional): This user's completion note
+- `calendarEventId` (string, optional): Calendar event for this user
 
 #### Teams Collection
 **Path:** `/teams/{teamId}`
@@ -187,9 +224,10 @@ class TaskRepository {
 - **Enum Handling**: Custom `toJson()` and `fromJson()` methods for enums (e.g., `UserRole`, `TaskStatus`).
 
 **Data Models** (All implemented):
-- `UserModel`: id, name, email, role, teamIds, status, calendar tokens
+- `UserModel`: id, name, email, role, teamIds, status, needsOnboarding, calendar tokens
 - `TeamModel`: id, name, adminId, memberIds, createdBy
-- `TaskModel`: id, title, subtitle, assignedType, assignedTo, status, deadline
+- `TaskModel`: id, title, subtitle, assignedType, createdBy, status, deadline, isMultiAssignee, assigneeIds, supervisorIds, assignedTo (legacy), completedAt (legacy)
+- `TaskAssignmentModel`: id, userId, status, assignedAt, completedAt, completionRemark, calendarEventId
 - `RemarkModel`: id, taskId, userId, message
 - `ApprovalRequestModel`: id, type, requesterId, targetId, payload, status
 - `RescheduleLogModel`: id, taskId, requestedBy, deadlines, approvedBy
@@ -369,8 +407,9 @@ MultiProvider(
 
 **Auth Module** (`presentation/auth/`):
 - `LoginScreen` - Social login (Google/Apple)
+- `EnterNameScreen` - **NEW (Dec 17, 2025)** - Name onboarding after first login
 - `RequestPendingScreen` - Approval waiting state
-- `AccessRevokedScreen` - **NEW** - Displayed when user access is revoked by Super Admin
+- `AccessRevokedScreen` - Displayed when user access is revoked by Super Admin
 - `OnboardingScreen` - 3-step PageView flow
 
 **Admin Module** (`presentation/admin/`):
@@ -486,11 +525,14 @@ GoRouter Redirect Logic (automatic)
   ↓ Router rebuilds due to AuthProvider change
   ↓ Check: isAuthenticated? → YES
   ↓ Check: currentUser loaded? → YES (from Firestore)
+  ↓ Check: user.needsOnboarding == true? (NEW - Dec 17, 2025)
+  │   YES → Navigate to EnterNameScreen
+  │   NO → Continue
   ↓ Check: user.status == 'pending'?
   │   YES → Navigate to RequestPendingScreen
   │   NO → Continue
-  ↓ Check: user.status == 'revoked'?
-  │   YES → Force logout → Navigate to LoginScreen
+  ↓ Check: user.status == 'revoked'? (UPDATED Dec 19, 2025)
+  │   YES → Navigate to AccessRevokedScreen (user stays authenticated)
   │   NO → Continue
   ↓ Check: user.status == 'active'?
   │   YES → Navigate based on role:
@@ -509,10 +551,10 @@ GoRouter Redirect Logic (automatic)
 - ✅ Google Sign-In (Android, iOS, macOS)
 - ✅ Apple Sign-In (iOS, macOS only)
 
-**User Status Handling**:
+**User Status Handling** (Updated Dec 19, 2025):
 - `pending`: Redirect to RequestPendingScreen (wait for admin approval)
 - `active`: Allow app access
-- `revoked`: Force logout and redirect to login
+- `revoked`: Redirect to AccessRevokedScreen (Firebase Auth NOT disabled, user can view revoked page)
 
 ### Logout Flow (Implemented)
 ```
@@ -640,6 +682,7 @@ MainLayout (ShellRoute)
 | Route | Screen | Access |
 |-------|--------|--------|
 | `/login` | LoginScreen | Public |
+| `/enter-name` | EnterNameScreen | Authenticated (needsOnboarding) |
 | `/request-pending` | RequestPendingScreen | Authenticated (pending) |
 | `/access-revoked` | AccessRevokedScreen | Authenticated (revoked) |
 | `/onboarding` | OnboardingScreen | Authenticated (first login) |
@@ -741,9 +784,66 @@ await cloudFunctions.disconnectCalendar();
 | **Reschedule** | `requestReschedule`, `approveReschedule` |
 | **Remark** | `addRemark` |
 | **Calendar** | `disconnectCalendar` |
+| **Multi-Assignee** | `completeAssignment` |
 | **Auth Triggers** | `createUserProfile`, `onUserDeleted` |
 | **Notification Triggers** | `notifyAdminNewUser`, `notifyUserStatusChange`, `notifyTeamCreation`, `notifyTeamMemberChange`, `notifyTaskAssignment`, `notifyTaskStatusChange` |
 | **Scheduled** | `checkDeadlines`, `checkOverdueTasks`, `cleanupInactiveTracking` |
+
+### Multi-Assignee Task Architecture (Dec 15, 2025)
+
+**Overview:**
+Major architectural update to support assigning a single task to multiple users with shared remarks, individual completion tracking, and supervisor roles.
+
+**Architecture Pattern: Normalized Parent-Child Model**
+- **Single Task (1 assignee)**: Legacy structure with `assignedTo` field
+- **Multi-Assignee (2+ assignees)**: Parent task with `assignments` subcollection
+- **Team Assignment**: Resolves to multi-assignee with all team members
+
+**Key Features:**
+1. **Shared Task Context**: All assignees see the same task with shared remarks
+2. **Individual Progress**: Each assignee can complete their assignment independently
+3. **Supervisor Role**: Selected assignees can view completion status of all users
+4. **Backward Compatibility**: Old single-assignee tasks continue to work
+
+**Data Structure:**
+
+```
+tasks/{taskId}                     // Parent task document
+  ├─ isMultiAssignee: true
+  ├─ assigneeIds: ["user1", "user2", "user3"]
+  ├─ supervisorIds: ["user1"]      // Can see all completion status
+  ├─ status: "ongoing"             // Overall task status
+  └─ assignments/{assignmentId}    // Per-user tracking
+       ├─ userId: "user1"
+       ├─ status: "completed"
+       ├─ completedAt: timestamp
+       └─ completionRemark: "Done!"
+```
+
+**Backend Changes:**
+- `assignTask`: Creates parent task + assignment subdocs for multi-assignee
+- `completeAssignment`: Marks individual assignment complete
+- `completeTask`: Routes to `completeAssignment` for multi-assignee tasks
+- `cancelTask`, `reopenTask`: Handle both single and multi-assignee
+
+**Frontend Changes:**
+- `TaskModel`: Added `isMultiAssignee`, `assigneeIds`, `supervisorIds` fields + helper methods
+- `TaskAssignmentModel`: New model for assignment subdocuments
+- `TaskRepository`: Added `getTaskAssignmentsStream()`, `getUserAssignedTasksStream()`
+- `AssigneeSelectionScreen`: Added supervisor toggle for multi-assignee selection
+- `CreateTaskScreen`: Pass supervisorIds when creating tasks
+- `TaskDetailScreen`: Show assignments progress table for creator/supervisor
+- `TaskTile`: Display assignee count for multi-assignee tasks
+
+**Helper Methods in TaskModel:**
+```dart
+task.isCreator(userId)              // Check if user created the task
+task.isSupervisor(userId)           // Check if user is a supervisor
+task.isAssignee(userId)             // Check if user is assigned
+task.canSeeAllCompletionStatus(userId)  // Creator or supervisor
+task.allAssigneeIds                 // Get all assignee IDs
+task.primaryAssigneeId              // Get first assignee for display
+```
 
 ### New Screens Added (Nov 27, 2025)
 
@@ -760,6 +860,26 @@ await cloudFunctions.disconnectCalendar();
 - **Location**: `/Users/divyammakar/workspace/Projects/todo-backend`
 - **Firebase Project**: `todo-taskmanager-25ab4`
 - **CodeMap**: `.windsurf/CodeMap.md`
+
+### Required Firestore Indexes for Multi-Assignee Tasks
+
+The following composite indexes are required for multi-assignee task queries to work correctly. Firebase will auto-generate these links in the console when queries fail, but you can also create them proactively:
+
+**Collection: `tasks`**
+
+| Fields | Order | Purpose |
+|--------|-------|---------|
+| `assigneeIds` (ARRAY), `status` (ASC) | - | Filter multi-assignee tasks by status |
+| `assigneeIds` (ARRAY), `deadline` (ASC) | - | Sort multi-assignee tasks by deadline |
+| `assigneeIds` (ARRAY), `status` (ASC), `deadline` (ASC) | - | Combined filter + sort |
+| `assignedTo` (ASC), `status` (ASC), `deadline` (ASC) | - | Legacy single-assignee queries |
+| `assignedTo` (ASC), `status` (ASC), `deadline` (DESC) | - | Legacy past tasks query |
+
+**How to Create:**
+1. Run the app and trigger queries that require indexes
+2. Check the debug console for "requires an index" errors
+3. Click the provided link to auto-create the index in Firebase Console
+4. Or manually create in Firebase Console → Firestore → Indexes → Add Index
 
 ---
 
@@ -844,6 +964,59 @@ await cloudFunctions.disconnectCalendar();
   3. Use `refreshListenable: authProvider` in GoRouter to re-evaluate redirects on auth changes
   4. Changed from `Consumer2` to `Consumer<ThemeProvider>` (only theme triggers rebuilds)
 - **Impact**: Router redirects now only trigger on actual navigation or auth state changes
+
+**Issue**: Production Audit Fixes Phase 1 (Dec 13, 2025)
+- **Files Modified**: 
+  - `login_screen.dart` - Fixed `_isLoading` never reset on success
+  - `auth_provider.dart` - Fixed race condition with proper user data wait mechanism
+  - `approval_queue_screen.dart` - Fixed `_processingUsers` never populated, empty name crash
+  - `user_management_screen.dart` - Added error feedback for optimistic updates + added `_processingUsers` to prevent double-clicks
+  - `reschedule_request_dialog.dart` - Removed optimistic pattern, added proper loading state and error feedback
+  - `reschedule_approval_screen.dart` - Fixed `_isProcessing` to prevent double-clicks, removed duplicate log creation
+  - `home_screen.dart` - Added 30-min cooldown for calendar token refresh with user feedback
+  - `main.dart` - Added try-catch for ThemeProvider initialization
+  - `calendar_service.dart` - Moved hardcoded web client ID to environment config
+  - `env_config.dart` - Added `googleWebClientId` getter
+  - `.env.example` - Added `GOOGLE_WEB_CLIENT_ID` variable
+  - `taskController.ts` (backend) - Added Firestore fallback for super admin role check
+- **Optimistic Update Pattern**: All screens with optimistic updates now show proper error feedback via SnackBar with retry option. `reschedule_request_dialog.dart` uses synchronous pattern (waits for server response) to avoid confusing users.
+- **Details**: See `.windsurf/AUDIT_FIX_PLAN.md` for complete documentation
+
+**Issue**: Production Audit Fixes Phase 2 (Dec 13, 2025)
+- **Files Modified**:
+  - `calendar_service.dart` - Added retry logic with `CalendarRefreshResult` enum for better error handling
+  - `home_screen.dart` - Updated to handle `CalendarRefreshResult` with user feedback for failures/reconnect needed
+  - `cloud_functions_service.dart` - Added `CloudFunctionTimeoutException` and 30s timeout wrapper for critical calls
+  - `create_task_screen.dart` - Added validation to prevent selecting past time when today is selected
+  - `reschedule_approval_screen.dart` - Removed duplicate log creation (backend already creates it)
+  - `taskController.ts` (backend) - Added `taskGroupId` and `sourceTeamId` for team assignment linking
+  - `main.dart` - Added global `FlutterError.onError` handler, uses `EnvConfig.isProduction` for conditional debug output
+- **New Features**:
+  - Cloud function calls now have 30s timeout with clear error messages
+  - Team assignments now create linked tasks via `taskGroupId` for bulk operations
+  - Calendar refresh shows appropriate feedback when reconnection is needed
+
+**Issue**: User Deletion & Management Refactor (Dec 19, 2025)
+- **Files Modified**:
+  - `userController.ts` (backend) - Complete overhaul of deletion and revocation logic
+  - `auth_provider.dart` - Added `WidgetsBindingObserver` for app lifecycle, fixed imports
+  - `access_revoked_screen.dart` - Converted to static screen with "Contact Admin" message
+  - `cloud_functions_service.dart` - Added `deleteOwnAccount` method
+- **New Features**:
+  1. **Audit Log**: Deleted users archived to `deleted_users` collection
+  2. **Zombie Cleanup**: Deletion queries by email to remove duplicate user documents
+  3. **Multi-Assignee Protection**: User removed from `assigneeIds`, task only cancelled if 0 assignees remain
+  4. **Revoked User Flow**: Firebase Auth NOT disabled, user sees AccessRevokedScreen
+  5. **Restore Access**: Re-enables Firebase Auth for legacy disabled accounts
+- **Key Behavioral Changes**:
+  - `revokeUserAccess`: No longer disables Firebase Auth account
+  - `restoreUserAccess`: Re-enables Firebase Auth (handles legacy disabled accounts)
+  - `deleteUser` / `deleteOwnAccount`: Archives to `deleted_users`, cleans up duplicates by email
+  - Multi-assignee tasks: Removes deleted user from `assigneeIds` instead of cancelling entire task
+- **Re-registration Flow**:
+  - After deletion, user can re-login with same account
+  - System creates new `pending` user document
+  - Admin receives notification, user appears in Approval Queue
 
 ---
 
@@ -1417,6 +1590,251 @@ synced to Google Calendar (runs in background after token exchange).
 
 #### Other Fixes
 - Fixed timezone hardcoding to use device timezone (`DateTime.now().timeZoneName`)
+
+### 📄 PDF Report Enhancement & Delete Account (Dec 13, 2025)
+
+#### PDF Report Improvements
+- **Enhanced Design**: Professional card-based layout with status badges
+- **More Details**: Task subtitle, completion date, created date, overdue indicators
+- **Summary Cards**: Total tasks, completed %, in progress, overdue count
+- **Files Modified**:
+  - `todo-backend/src/controllers/reportController.ts` - Complete redesign of `generateTasksPDF()`
+
+#### Export Report Flow Simplified
+- **Direct Download**: No confirmation dialog - exports directly on tap
+- **System Notification**: Shows download notification in notification bar
+- **Save Location**: Saves to `Todo Manager` folder at root of internal storage (Android)
+- **Files Modified**:
+  - `lib/presentation/admin/widgets/export_report_dialog.dart` - Added notification, direct download
+  - `pubspec.yaml` - Added `open_filex` package
+
+#### Delete Account Feature (Play Store Compliance)
+- **New Feature**: Users can delete their own account from Settings
+- **Double Confirmation**: Requires typing "DELETE" to confirm
+- **Cleanup**: Deletes user data, cancels tasks, removes from teams
+- **Files Modified**:
+  - `lib/presentation/settings/settings_screen.dart` - Added Account section with delete button
+  - `lib/data/services/cloud_functions_service.dart` - Added `deleteOwnAccount()`
+  - `todo-backend/src/controllers/userController.ts` - Added `deleteOwnAccount` Cloud Function
+  - `todo-backend/src/config/constants.ts` - Added `NOTIFICATIONS` collection
+  - `todo-backend/src/index.ts` - Exported new function
+
+### 📧 Invite System UX Improvements (Dec 13, 2025)
+
+#### Auto-Expire Pending Invites
+- **Backend**: `getInvites` now auto-marks expired pending invites
+- **Frontend**: Displays "Expired" status for pending invites past expiration date
+- **Files Modified**:
+  - `todo-backend/src/controllers/inviteController.ts` - Added auto-expire in `getInvites`
+
+#### Per-Item Loading State for Cancel/Resend
+- **Before**: Whole list refreshed with loading indicator when canceling
+- **After**: Only the specific invite shows loading indicator
+- **Optimistic Update**: Cancelled invite updates immediately in UI
+- **Files Modified**:
+  - `lib/presentation/admin/invite_users_screen.dart`:
+    - Added `_processingInviteIds` Set for per-item tracking
+    - Updated `_cancelInvite` for optimistic update
+    - Updated `_resendInvite` with loading state
+    - Updated `_buildInviteCard` with loading indicator and expired detection
+
+### 📅 Calendar Integration Improvements (Dec 16, 2025)
+
+Backend changes improve calendar event handling for multi-assignee tasks and token management:
+
+#### Token Preservation on Disconnect
+- Disconnect now only sets `googleCalendarConnected: false`
+- Tokens preserved for seamless reconnect (no re-authentication needed)
+- Tokens only deleted on account deletion
+
+#### Multi-Assignee Calendar Event Updates
+- `updateTask` now iterates assignments and updates each assignee's calendar event
+- Previously only single-assignee tasks had their calendar events updated
+
+#### Stale Event ID Cleanup
+- Calendar event IDs cleared from Firestore after successful deletion
+- Prevents orphan references in task/assignment documents
+
+#### Less Aggressive Auth Error Handling
+- Only resets connection for true auth errors (401, invalid_grant)
+- Rate-limits (429) and quota errors (403) no longer trigger reconnect
+
+**Frontend Impact**: None - existing `calendar_service.dart` already delegates to backend Cloud Functions.
+
+**Backend Files Modified**:
+- `src/services/calendarService.ts` - Token preservation, auth error handling
+- `src/controllers/taskController.ts` - Multi-assignee updates, event ID cleanup
+
+### 🎨 Task Detail People Section UI Fix (Dec 16, 2025)
+
+Fixed layout issue in the "People" section of Task Detail screen where assignee/creator name and avatar had poor alignment with long names.
+
+#### Problem
+- Avatar appeared between label and name, creating visual disconnect
+- Long names would overflow or break the layout
+- Name and role text were misaligned with the avatar
+
+#### Solution
+- Moved avatar to the **right** of the name/role column
+- Wrapped user info in `Flexible` widget to handle long names
+- Added `maxLines: 1` and `overflow: TextOverflow.ellipsis` to name text
+- Increased spacing between name column and avatar
+
+#### Files Modified
+- `lib/presentation/tasks/task_detail_screen.dart`
+  - `_buildCompactUserRow()` method - Restructured layout
+
+### 🔧 Bug Fixes & UI Improvements (Dec 16, 2025 - v1.0.10)
+
+#### Issue 2: Task Details Name Overflow Fix
+- Changed `_buildCompactUserRow()` layout to use fixed-width label (100px) and `Expanded` for user info
+- Names now have more space and won't be truncated too aggressively
+
+#### Issue 3: Swipeable Tabs in All Tasks Screen
+- Wrapped body content in `TabBarView` for swipe navigation between tabs
+- Removed manual `onTap` callback since TabBarView handles tab changes
+
+#### Issue 4: Keyboard Auto-Open After Assignee Selection
+- Added `FocusManager.instance.primaryFocus?.unfocus()` after returning from AssigneeSelectionScreen
+- Prevents keyboard from auto-opening on Description field
+
+#### Issue 5: Supervisor IDs Not Cleared on Assignment Type Change
+- Added `_supervisorIds.clear()` in `onSelectionChanged` callback of SegmentedButton
+- Prevents stale supervisor tags from persisting when switching between Member/Team/Self
+
+#### Issue 6: Multi-Assignee Tasks - People Section & Permissions
+- Added Firestore rules for `tasks/{taskId}/assignments/{assignmentId}` subcollection
+- Modified People section to show ALL assignees for multi-assignee tasks (not just primary)
+- Supervisors now shown with supervisor icon in the assignee list
+
+#### Files Modified
+- `lib/presentation/tasks/task_detail_screen.dart`
+  - `_buildCompactUserRow()` - Fixed layout for better name display
+  - People section - Now shows all assignees for multi-assignee tasks
+- `lib/presentation/admin/all_tasks_screen.dart`
+  - Added `TabBarView` for swipeable tabs
+- `lib/presentation/tasks/create_task_screen.dart`
+  - Clear `_supervisorIds` on assignment type change
+  - Unfocus after assignee selection
+- `firestore.rules`
+  - Added rules for assignments subcollection
+
+### 🔐 Auth & Splash Screen Fix (Dec 16, 2025 - v1.0.11)
+
+#### Problem
+When app opened, even logged-in users saw the login page and had to tap "Continue with Google" because:
+- `_isLoading` started as `false`
+- Router saw `isLoading=false` + `isAuthenticated=false` (user data not loaded yet)
+- Router immediately redirected to login instead of showing splash while checking auth
+
+#### Solution
+Changed `_isLoading` initial value to `true` in `AuthProvider`:
+- App starts with splash screen visible
+- Firebase auth state is checked in background
+- If logged in → user data loads → redirects to home
+- If not logged in → `_clearUser()` sets `_isLoading=false` → redirects to login
+
+#### Files Modified
+- `lib/data/providers/auth_provider.dart`
+  - Changed `_isLoading = false` to `_isLoading = true`
+
+### 🔐 Auth Persistence Fix v2 (Dec 17, 2025)
+
+#### Problem
+Despite the v1.0.11 fix, users still saw the login page on app relaunch because:
+- `authStateChanges` stream fires `null` before Firebase finishes restoring persisted credentials
+- `isAuthenticated` was based on Firestore `_currentUser` (not Firebase auth state)
+- App concluded "no session" before Firebase had a chance to restore it
+
+Cold-start logs showed:
+```
+🔓 Initial auth check: No active session
+🔀 Router Redirect - Path: /, Auth: false, Loading: false, User: null
+🔀 Not authenticated, redirecting to login
+```
+
+#### Root Cause
+Firebase Auth restores sessions asynchronously from disk. Subscribing to `authStateChanges` immediately may receive `null` before restoration completes.
+
+#### Solution
+1. **Track Firebase auth separately**: Added `_firebaseUser` field in `AuthProvider`
+2. **Synchronous check first**: Check `currentFirebaseUser` BEFORE subscribing to stream
+3. **Updated `isAuthenticated`**: Now returns `_firebaseUser != null` (Firebase auth presence, not Firestore user)
+4. **Auth bootstrap + silent Google restore**: If no restored Firebase session is found, keep splash visible and attempt to restore session via `GoogleSignIn.signInSilently()` and re-authenticate Firebase.
+
+Auth flow now:
+1. App starts → `_isLoading = true` → splash screen shown
+2. `_initAuthListener()` checks `currentFirebaseUser` synchronously
+3. If user found → sets `_firebaseUser` + loads Firestore data
+4. Router sees `isAuthenticated=true` + `currentUser=null` → stays on splash
+5. Firestore data loads → `currentUser` populated → redirects to home
+6. If no Firebase user restored → `_bootstrapInitialAuth()` attempts silent Google Sign-In
+7. If silent Google Sign-In restores a user → Firebase user set + Firestore loads → redirects to home
+8. If no session after bootstrap → `_clearUser()` → redirects to login
+
+#### Files Modified
+- `lib/data/providers/auth_provider.dart`
+  - Added `_firebaseUser` field to track Firebase auth state
+  - Added `firebaseUser` getter
+  - Updated `isAuthenticated` to use `_firebaseUser != null`
+  - Rewrote `_initAuthListener()` to check `currentFirebaseUser` first
+  - Updated `_clearUser()` to also clear `_firebaseUser`
+  - Added `_isBootstrappingAuth` + `_bootstrapInitialAuth()` to prevent premature logout and restore session via silent Google Sign-In
+- `lib/data/repositories/auth_repository.dart`
+  - Added `signInWithGoogleSilently()` to restore a Google session and re-authenticate Firebase without user interaction
+
+### 📄 Report Export Android Storage Fix (Dec 16, 2025 - v1.0.11)
+
+#### Problem
+Report export failed on Android 11+ with:
+```
+PathAccessException: Creation failed, path = '/storage/emulated/0/Todo Manager'
+(OS Error: Permission denied, errno = 13)
+```
+Android 11+ Scoped Storage restrictions prevent apps from writing to arbitrary external storage locations.
+
+#### Solution
+Changed `_getReportDirectory()` to use app-specific external storage instead:
+- Uses `getExternalStorageDirectory()` which returns `/storage/emulated/0/Android/data/<package>/files/`
+- Creates `Reports` subfolder within app's external storage
+- No special permissions required
+- Files survive app updates but are deleted on uninstall
+
+#### Files Modified
+- `lib/presentation/admin/widgets/export_report_dialog.dart`
+  - Updated `_getReportDirectory()` to save to public Downloads folder (`/storage/emulated/0/Download`)
+  - Added storage permission request for Downloads folder access
+  - Download notification appears in notification bar when report is saved
+
+---
+
+### 📄 Report PDF & TaskTile Overdue Fix (Dec 16, 2025 - v1.0.12)
+
+#### Problems
+1. **PDF Report text overlapping**: Bottom info row (Assignee, Deadline, Created, Completed) was stacking on top of each other
+2. **PDF Report task ordering**: Tasks appeared in random order instead of Ongoing → Completed → Cancelled
+3. **TaskTile overdue indicator**: "X days overdue" was showing for Completed/Cancelled tasks in admin All Tasks view
+
+#### Solutions
+1. **Backend PDF layout fix** (`todo-backend/src/controllers/reportController.ts`):
+   - Changed bottom info from single row to two rows to avoid overlap
+   - Row 1: Assignee (left) + Deadline (right)
+   - Row 2: Completed date (left) + Created date (right)
+   - Increased card height from 85px to 100px to accommodate
+
+2. **Backend task sorting** (`todo-backend/src/controllers/reportController.ts`):
+   - Added status-based sorting: ongoing (0) → completed (1) → cancelled (2)
+   - Within same status, tasks sorted by deadline (most recent first)
+
+3. **Frontend overdue fix** (`lib/presentation/common/list_items/task_tile.dart`):
+   - Modified `_formatDeadline()` to only show "X days overdue" for ongoing tasks
+   - Completed/Cancelled tasks now show regular date format instead
+
+#### Files Modified
+- `todo-backend/src/controllers/reportController.ts` - PDF layout and task sorting
+- `lib/presentation/common/list_items/task_tile.dart` - Overdue text logic
+
+---
 
 **Top-Level Rules**:
 1. **Absolute Paths**: Always use absolute paths for file operations.
