@@ -24,10 +24,19 @@ class _RescheduleApprovalScreenState extends State<RescheduleApprovalScreen> {
   final ApprovalRepository _approvalRepository = ApprovalRepository();
   Stream<List<ApprovalRequestModel>>? _requestsStream;
 
-  Stream<List<ApprovalRequestModel>> _getRequestsStream(String userId) {
-    _requestsStream ??= _approvalRepository.getPendingRescheduleRequestsStream(
-      userId,
-    );
+  Stream<List<ApprovalRequestModel>> _getRequestsStream(
+    String userId,
+    bool isSuperAdmin,
+  ) {
+    if (isSuperAdmin) {
+      _requestsStream ??= _approvalRepository.getAllRescheduleRequestsStream(
+        status: ApprovalRequestStatus.pending,
+      );
+    } else {
+      _requestsStream ??= _approvalRepository.getPendingRescheduleRequestsStream(
+        userId,
+      );
+    }
     return _requestsStream!;
   }
 
@@ -43,7 +52,7 @@ class _RescheduleApprovalScreenState extends State<RescheduleApprovalScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Reschedule Requests')),
       body: StreamBuilder<List<ApprovalRequestModel>>(
-        stream: _getRequestsStream(currentUser.id),
+        stream: _getRequestsStream(currentUser.id, authProvider.isSuperAdmin),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
@@ -137,6 +146,9 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
   bool _isProcessing = false;
 
   Future<void> _handleApprove() async {
+    // Set processing to prevent double-clicks
+    setState(() => _isProcessing = true);
+
     // OPTIMISTIC UPDATE: Show success immediately
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -146,36 +158,32 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
     );
 
     // Fire in background - Firestore stream removes this card automatically on server update
-    _approvalRepository.approveRescheduleRequest(
-      requestId: widget.request.id,
-      approverId: widget.approverId,
-      taskId: widget.request.targetId,
-      newDeadline: widget.request.newDeadline!,
-    ).then((_) {
-      // Create log entry after approval succeeds
-      return _approvalRepository.createRescheduleLog(
-        taskId: widget.request.targetId,
-        requestedBy: widget.request.requesterId,
-        originalDeadline: widget.request.originalDeadline!,
-        newDeadline: widget.request.newDeadline!,
-        approvedBy: widget.approverId,
-      );
-    }).catchError((error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to sync: $error'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: _handleApprove,
-            ),
-          ),
-        );
-      }
-    });
+    // Note: Backend creates reschedule log entry automatically on approval
+    _approvalRepository
+        .approveRescheduleRequest(
+          requestId: widget.request.id,
+          approverId: widget.approverId,
+          taskId: widget.request.targetId,
+          newDeadline: widget.request.newDeadline!,
+        )
+        .catchError((error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to sync: $error'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'Retry',
+                  textColor: Colors.white,
+                  onPressed: _handleApprove,
+                ),
+              ),
+            );
+            // Reset processing on error to allow retry
+            setState(() => _isProcessing = false);
+          }
+        });
   }
 
   Future<void> _handleReject() async {
@@ -203,6 +211,9 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
 
     if (confirmed != true) return;
 
+    // Set processing to prevent double-clicks
+    setState(() => _isProcessing = true);
+
     // OPTIMISTIC UPDATE: Show success immediately
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -212,25 +223,29 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
     );
 
     // Fire in background - Firestore stream removes this card automatically
-    _approvalRepository.rejectRescheduleRequest(
-      requestId: widget.request.id,
-      approverId: widget.approverId,
-    ).catchError((error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to sync: $error'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: _handleReject,
-            ),
-          ),
-        );
-      }
-    });
+    _approvalRepository
+        .rejectRescheduleRequest(
+          requestId: widget.request.id,
+          approverId: widget.approverId,
+        )
+        .catchError((error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to sync: $error'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'Retry',
+                  textColor: Colors.white,
+                  onPressed: _handleReject,
+                ),
+              ),
+            );
+            // Reset processing on error to allow retry
+            setState(() => _isProcessing = false);
+          }
+        });
   }
 
   @override

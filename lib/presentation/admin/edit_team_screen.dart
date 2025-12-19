@@ -332,7 +332,7 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
                                       ),
                                   ],
                                 ),
-                                subtitle: Text(user.email),
+                                subtitle: Text(_getRoleDisplayName(user.role)),
                                 secondary: CircleAvatar(
                                   backgroundColor:
                                       theme.colorScheme.primaryContainer,
@@ -371,5 +371,16 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
         ),
       ),
     );
+  }
+
+  String _getRoleDisplayName(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'Super Admin';
+      case UserRole.teamAdmin:
+        return 'Team Admin';
+      case UserRole.member:
+        return 'Member';
+    }
   }
 }

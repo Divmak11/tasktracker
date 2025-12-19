@@ -67,10 +67,10 @@ class _AllTasksScreenState extends State<AllTasksScreen>
         filtered = tasks;
     }
 
-    // Apply assignee filter if selected
+    // Apply assignee filter if selected (supports both legacy and multi-assignee)
     if (_selectedAssigneeId != null) {
       filtered =
-          filtered.where((t) => t.assignedTo == _selectedAssigneeId).toList();
+          filtered.where((t) => t.isAssignee(_selectedAssigneeId!)).toList();
     }
 
     return filtered;
@@ -169,7 +169,7 @@ class _AllTasksScreenState extends State<AllTasksScreen>
                                   : null,
                         ),
                         title: Text(user.name),
-                        subtitle: Text(user.email),
+                        subtitle: null,
                         trailing:
                             isSelected
                                 ? Icon(
@@ -251,7 +251,6 @@ class _AllTasksScreenState extends State<AllTasksScreen>
             children: [
               TabBar(
                 controller: _tabController,
-                onTap: (_) => setState(() {}),
                 tabs: const [
                   Tab(text: 'All'),
                   Tab(text: 'Ongoing'),
@@ -332,50 +331,8 @@ class _AllTasksScreenState extends State<AllTasksScreen>
           }
 
           final allTasks = taskSnapshot.data!;
-          final filteredTasks = _filterTasks(allTasks, _tabController.index);
 
-          // Sort by deadline (most recent first)
-          filteredTasks.sort((a, b) => b.deadline.compareTo(a.deadline));
-
-          if (filteredTasks.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inbox_outlined,
-                    size: 80,
-                    color: isDark ? AppColors.neutral600 : AppColors.neutral300,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  Text(
-                    _selectedAssigneeId != null
-                        ? 'No tasks for this assignee'
-                        : 'No Tasks Found',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color:
-                          isDark ? AppColors.neutral400 : AppColors.neutral600,
-                    ),
-                  ),
-                  if (_selectedAssigneeId != null) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _selectedAssigneeId = null;
-                          _selectedAssigneeName = null;
-                        });
-                      },
-                      icon: const Icon(Icons.clear),
-                      label: const Text('Clear filter'),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          }
-
-          // Build task list with user data
+          // Build TabBarView for swipeable tabs
           return StreamBuilder<List<UserModel>>(
             stream: _userRepository.getAllUsersStream(),
             builder: (context, usersSnapshot) {
@@ -386,23 +343,79 @@ class _AllTasksScreenState extends State<AllTasksScreen>
                 }
               }
 
-              return ListView.separated(
-                padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
-                itemCount: filteredTasks.length,
-                separatorBuilder:
-                    (_, __) => const SizedBox(height: AppSpacing.sm),
-                itemBuilder: (context, index) {
-                  final task = filteredTasks[index];
-                  final assignee = usersMap[task.assignedTo];
-                  final creator = usersMap[task.createdBy];
-
-                  return TaskTile(
-                    task: task,
-                    assignee: assignee,
-                    creator: creator,
-                    onTap: () => context.push('/task/${task.id}'),
+              return TabBarView(
+                controller: _tabController,
+                children: List.generate(4, (tabIndex) {
+                  final filteredTasks = _filterTasks(allTasks, tabIndex);
+                  // Sort by deadline (most recent first)
+                  filteredTasks.sort(
+                    (a, b) => b.deadline.compareTo(a.deadline),
                   );
-                },
+
+                  if (filteredTasks.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.inbox_outlined,
+                            size: 80,
+                            color:
+                                isDark
+                                    ? AppColors.neutral600
+                                    : AppColors.neutral300,
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          Text(
+                            _selectedAssigneeId != null
+                                ? 'No tasks for this assignee'
+                                : 'No Tasks Found',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color:
+                                  isDark
+                                      ? AppColors.neutral400
+                                      : AppColors.neutral600,
+                            ),
+                          ),
+                          if (_selectedAssigneeId != null) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedAssigneeId = null;
+                                  _selectedAssigneeName = null;
+                                });
+                              },
+                              icon: const Icon(Icons.clear),
+                              label: const Text('Clear filter'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(
+                      AppSpacing.screenPaddingMobile,
+                    ),
+                    itemCount: filteredTasks.length,
+                    separatorBuilder:
+                        (_, __) => const SizedBox(height: AppSpacing.sm),
+                    itemBuilder: (context, index) {
+                      final task = filteredTasks[index];
+                      final assignee = usersMap[task.primaryAssigneeId];
+                      final creator = usersMap[task.createdBy];
+
+                      return TaskTile(
+                        task: task,
+                        assignee: assignee,
+                        creator: creator,
+                        onTap: () => context.push('/task/${task.id}'),
+                      );
+                    },
+                  );
+                }),
               );
             },
           );

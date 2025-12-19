@@ -241,7 +241,9 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
                                         ],
                                       ],
                                     ),
-                                    subtitle: Text(user.email),
+                                    subtitle: Text(
+                                      _getRoleDisplayName(user.role),
+                                    ),
                                     secondary: CircleAvatar(
                                       backgroundColor:
                                           theme.colorScheme.primaryContainer,
@@ -332,5 +334,16 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
         ),
       ),
     );
+  }
+
+  String _getRoleDisplayName(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'Super Admin';
+      case UserRole.teamAdmin:
+        return 'Team Admin';
+      case UserRole.member:
+        return 'Member';
+    }
   }
 }

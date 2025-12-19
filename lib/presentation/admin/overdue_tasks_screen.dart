@@ -89,7 +89,10 @@ class OverdueTasksScreen extends StatelessWidget {
                   DateTime.now().difference(task.deadline).inDays;
 
               return StreamBuilder<UserModel?>(
-                stream: userRepository.getUserStream(task.assignedTo),
+                stream:
+                    task.primaryAssigneeId.isNotEmpty
+                        ? userRepository.getUserStream(task.primaryAssigneeId)
+                        : const Stream.empty(),
                 builder: (context, assigneeSnapshot) {
                   final assignee = assigneeSnapshot.data;
 

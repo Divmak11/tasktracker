@@ -28,7 +28,7 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
       builder:
           (context) => AlertDialog(
             title: const Text('Approve User'),
-            content: Text('Approve access for ${user.email}?'),
+            content: Text('Approve access for ${user.name}?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -43,24 +43,30 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
     );
 
     if (confirm == true && mounted) {
-      // OPTIMISTIC UPDATE: Show success immediately
-      NotificationService.showInAppNotification(
-        context,
-        title: 'User Approved',
-        message: '${user.email} has been granted access',
-        icon: Icons.check_circle,
-        backgroundColor: Colors.green.shade700,
-      );
+      // Add to processing set to prevent double-clicks
+      setState(() => _processingUsers.add(user.id));
 
-      // Fire cloud function in background - Firestore stream removes user from list
-      _cloudFunctions.approveUserAccess(user.id).catchError((error) {
+      try {
+        await _cloudFunctions.approveUserAccess(user.id);
+        
         if (mounted) {
-          final message = error is FirebaseFunctionsException 
-              ? error.message ?? error.code 
-              : error.toString();
+          NotificationService.showInAppNotification(
+            context,
+            title: 'User Approved',
+            message: '${user.name} has been granted access',
+            icon: Icons.check_circle,
+            backgroundColor: Colors.green.shade700,
+          );
+        }
+      } catch (error) {
+        if (mounted) {
+          final message =
+              error is FirebaseFunctionsException
+                  ? error.message ?? error.code
+                  : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to sync: $message'),
+              content: Text('Failed to approve: $message'),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 5),
               action: SnackBarAction(
@@ -71,8 +77,11 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
             ),
           );
         }
-        return <String, dynamic>{};
-      });
+      } finally {
+        if (mounted) {
+          setState(() => _processingUsers.remove(user.id));
+        }
+      }
     }
   }
 
@@ -82,7 +91,7 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
       builder:
           (context) => AlertDialog(
             title: const Text('Reject User'),
-            content: Text('Reject access request from ${user.email}?'),
+            content: Text('Reject access request from ${user.name}?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -98,11 +107,14 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
     );
 
     if (confirm == true && mounted) {
+      // Add to processing set to prevent double-clicks
+      setState(() => _processingUsers.add(user.id));
+
       // OPTIMISTIC UPDATE: Show success immediately
       NotificationService.showInAppNotification(
         context,
         title: 'User Rejected',
-        message: '${user.email} access request has been rejected',
+        message: '${user.name} access request has been rejected',
         icon: Icons.block,
         backgroundColor: Colors.orange.shade700,
       );
@@ -110,9 +122,10 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
       // Fire cloud function in background
       _cloudFunctions.rejectUserAccess(user.id).catchError((error) {
         if (mounted) {
-          final message = error is FirebaseFunctionsException 
-              ? error.message ?? error.code 
-              : error.toString();
+          final message =
+              error is FirebaseFunctionsException
+                  ? error.message ?? error.code
+                  : error.toString();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to sync: $message'),
@@ -125,6 +138,8 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
               ),
             ),
           );
+          // Remove from processing on error so user can retry
+          setState(() => _processingUsers.remove(user.id));
         }
         return <String, dynamic>{};
       });
@@ -205,7 +220,9 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
                           CircleAvatar(
                             backgroundColor: theme.colorScheme.primaryContainer,
                             child: Text(
-                              user.name[0],
+                              user.name.isNotEmpty
+                                  ? user.name[0].toUpperCase()
+                                  : '?',
                               style: TextStyle(
                                 color: theme.colorScheme.onPrimaryContainer,
                               ),
@@ -224,12 +241,9 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
                                 ),
                                 const SizedBox(height: AppSpacing.xs),
                                 Text(
-                                  user.email,
+                                  'Pending Approval',
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color:
-                                        isDark
-                                            ? AppColors.neutral400
-                                            : AppColors.neutral600,
+                                    color: Colors.orange,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),

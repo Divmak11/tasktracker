@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -18,12 +19,19 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   final UserRepository _userRepository = UserRepository();
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
   final TextEditingController _searchController = TextEditingController();
-  
+
   UserRole? _selectedRoleFilter;
   UserStatus? _selectedStatusFilter;
   String _searchQuery = '';
 
+  // Set of user IDs currently being processed to prevent double-clicks
+  final Set<String> _processingUsers = {};
+
   Future<void> _showChangeRoleDialog(UserModel user) async {
+    if (_processingUsers.contains(user.id)) {
+      return;
+    }
+
     UserRole? newRole = user.role;
 
     final result = await showDialog<UserRole>(
@@ -96,6 +104,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       );
 
       if (confirmed == true && mounted) {
+        // Add to processing set to prevent double-clicks
+        setState(() => _processingUsers.add(user.id));
+
         // OPTIMISTIC UPDATE: Show success immediately
         NotificationService.showInAppNotification(
           context,
@@ -106,15 +117,47 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         );
 
         // Fire cloud function in background
-        _cloudFunctions.updateUserRole(user.id, result.toJson()).catchError((error) {
-          debugPrint('Failed to update role: $error');
-          return <String, dynamic>{};
-        });
+        _cloudFunctions
+            .updateUserRole(user.id, result.toJson())
+            .catchError((error) {
+              debugPrint('Failed to update role: $error');
+              if (mounted) {
+                final message =
+                    error is FirebaseFunctionsException
+                        ? error.message ?? error.code
+                        : error.toString();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to sync role change: $message'),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 5),
+                    action: SnackBarAction(
+                      label: 'Retry',
+                      textColor: Colors.white,
+                      onPressed: () => _showChangeRoleDialog(user),
+                    ),
+                  ),
+                );
+                // Remove from processing on error so user can retry
+                setState(() => _processingUsers.remove(user.id));
+              }
+              return <String, dynamic>{};
+            })
+            .then((_) {
+              // Remove from processing on success (Firestore stream will update UI)
+              if (mounted) {
+                setState(() => _processingUsers.remove(user.id));
+              }
+            });
       }
     }
   }
 
   Future<void> _handleRevokeAccess(UserModel user) async {
+    if (_processingUsers.contains(user.id)) {
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder:
@@ -136,6 +179,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
 
     if (confirm == true && mounted) {
+      // Add to processing set to prevent double-clicks
+      setState(() => _processingUsers.add(user.id));
+
       // OPTIMISTIC UPDATE: Show success immediately
       NotificationService.showInAppNotification(
         context,
@@ -146,14 +192,46 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       );
 
       // Fire cloud function in background
-      _cloudFunctions.revokeUserAccess(user.id).catchError((error) {
-        debugPrint('Failed to revoke access: $error');
-        return <String, dynamic>{};
-      });
+      _cloudFunctions
+          .revokeUserAccess(user.id)
+          .catchError((error) {
+            debugPrint('Failed to revoke access: $error');
+            if (mounted) {
+              final message =
+                  error is FirebaseFunctionsException
+                      ? error.message ?? error.code
+                      : error.toString();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to sync: $message'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                  action: SnackBarAction(
+                    label: 'Retry',
+                    textColor: Colors.white,
+                    onPressed: () => _handleRevokeAccess(user),
+                  ),
+                ),
+              );
+              // Remove from processing on error so user can retry
+              setState(() => _processingUsers.remove(user.id));
+            }
+            return <String, dynamic>{};
+          })
+          .then((_) {
+            // Remove from processing on success (Firestore stream will update UI)
+            if (mounted) {
+              setState(() => _processingUsers.remove(user.id));
+            }
+          });
     }
   }
 
   Future<void> _handleRestoreAccess(UserModel user) async {
+    if (_processingUsers.contains(user.id)) {
+      return;
+    }
+
     final confirm = await showDialog<bool>(
       context: context,
       builder:
@@ -174,6 +252,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
 
     if (confirm == true && mounted) {
+      // Add to processing set to prevent double-clicks
+      setState(() => _processingUsers.add(user.id));
+
       // OPTIMISTIC UPDATE: Show success immediately
       NotificationService.showInAppNotification(
         context,
@@ -184,10 +265,38 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       );
 
       // Fire cloud function in background
-      _cloudFunctions.restoreUserAccess(user.id).catchError((error) {
-        debugPrint('Failed to restore access: $error');
-        return <String, dynamic>{};
-      });
+      _cloudFunctions
+          .restoreUserAccess(user.id)
+          .catchError((error) {
+            debugPrint('Failed to restore access: $error');
+            if (mounted) {
+              final message =
+                  error is FirebaseFunctionsException
+                      ? error.message ?? error.code
+                      : error.toString();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to sync: $message'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                  action: SnackBarAction(
+                    label: 'Retry',
+                    textColor: Colors.white,
+                    onPressed: () => _handleRestoreAccess(user),
+                  ),
+                ),
+              );
+              // Remove from processing on error so user can retry
+              setState(() => _processingUsers.remove(user.id));
+            }
+            return <String, dynamic>{};
+          })
+          .then((_) {
+            // Remove from processing on success (Firestore stream will update UI)
+            if (mounted) {
+              setState(() => _processingUsers.remove(user.id));
+            }
+          });
     }
   }
 
@@ -229,7 +338,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             ),
             child: TextField(
               controller: _searchController,
-              onChanged: (value) => setState(() => _searchQuery = value.toLowerCase()),
+              onChanged:
+                  (value) => setState(() => _searchQuery = value.toLowerCase()),
               decoration: InputDecoration(
                 hintText: 'Search by name or email...',
                 prefixIcon: Icon(
@@ -237,19 +347,23 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   color: isDark ? AppColors.neutral500 : AppColors.neutral400,
                   size: 20,
                 ),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: Icon(
-                          Icons.clear,
-                          size: 18,
-                          color: isDark ? AppColors.neutral500 : AppColors.neutral400,
-                        ),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                      )
-                    : null,
+                suffixIcon:
+                    _searchQuery.isNotEmpty
+                        ? IconButton(
+                          icon: Icon(
+                            Icons.clear,
+                            size: 18,
+                            color:
+                                isDark
+                                    ? AppColors.neutral500
+                                    : AppColors.neutral400,
+                          ),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                        : null,
                 filled: true,
                 fillColor: isDark ? AppColors.neutral800 : AppColors.neutral50,
                 border: OutlineInputBorder(
@@ -290,38 +404,66 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     setState(() => _selectedStatusFilter = null);
                   }),
                   const SizedBox(width: AppSpacing.xs),
-                  _buildCompactChip('Active', _selectedStatusFilter == UserStatus.active, () {
-                    setState(() => _selectedStatusFilter = UserStatus.active);
-                  }),
+                  _buildCompactChip(
+                    'Active',
+                    _selectedStatusFilter == UserStatus.active,
+                    () {
+                      setState(() => _selectedStatusFilter = UserStatus.active);
+                    },
+                  ),
                   const SizedBox(width: AppSpacing.xs),
-                  _buildCompactChip('Revoked', _selectedStatusFilter == UserStatus.revoked, () {
-                    setState(() => _selectedStatusFilter = UserStatus.revoked);
-                  }),
-                  
+                  _buildCompactChip(
+                    'Revoked',
+                    _selectedStatusFilter == UserStatus.revoked,
+                    () {
+                      setState(
+                        () => _selectedStatusFilter = UserStatus.revoked,
+                      );
+                    },
+                  ),
+
                   // Vertical divider
                   Container(
-                    margin: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                    ),
                     width: 1,
                     height: 24,
                     color: isDark ? AppColors.neutral700 : AppColors.neutral300,
                   ),
-                  
+
                   // Role Filters
-                  _buildCompactChip('All Roles', _selectedRoleFilter == null, () {
-                    setState(() => _selectedRoleFilter = null);
-                  }),
+                  _buildCompactChip(
+                    'All Roles',
+                    _selectedRoleFilter == null,
+                    () {
+                      setState(() => _selectedRoleFilter = null);
+                    },
+                  ),
                   const SizedBox(width: AppSpacing.xs),
-                  _buildCompactChip('Admin', _selectedRoleFilter == UserRole.superAdmin, () {
-                    setState(() => _selectedRoleFilter = UserRole.superAdmin);
-                  }),
+                  _buildCompactChip(
+                    'Admin',
+                    _selectedRoleFilter == UserRole.superAdmin,
+                    () {
+                      setState(() => _selectedRoleFilter = UserRole.superAdmin);
+                    },
+                  ),
                   const SizedBox(width: AppSpacing.xs),
-                  _buildCompactChip('Team Admin', _selectedRoleFilter == UserRole.teamAdmin, () {
-                    setState(() => _selectedRoleFilter = UserRole.teamAdmin);
-                  }),
+                  _buildCompactChip(
+                    'Team Admin',
+                    _selectedRoleFilter == UserRole.teamAdmin,
+                    () {
+                      setState(() => _selectedRoleFilter = UserRole.teamAdmin);
+                    },
+                  ),
                   const SizedBox(width: AppSpacing.xs),
-                  _buildCompactChip('Member', _selectedRoleFilter == UserRole.member, () {
-                    setState(() => _selectedRoleFilter = UserRole.member);
-                  }),
+                  _buildCompactChip(
+                    'Member',
+                    _selectedRoleFilter == UserRole.member,
+                    () {
+                      setState(() => _selectedRoleFilter = UserRole.member);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -341,23 +483,30 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 }
 
                 var users = snapshot.data!;
-                
+
                 // Apply role filter
                 if (_selectedRoleFilter != null) {
-                  users = users.where((u) => u.role == _selectedRoleFilter).toList();
+                  users =
+                      users
+                          .where((u) => u.role == _selectedRoleFilter)
+                          .toList();
                 }
-                
+
                 // Apply status filter
                 if (_selectedStatusFilter != null) {
-                  users = users.where((u) => u.status == _selectedStatusFilter).toList();
+                  users =
+                      users
+                          .where((u) => u.status == _selectedStatusFilter)
+                          .toList();
                 }
-                
+
                 // Apply search filter
                 if (_searchQuery.isNotEmpty) {
-                  users = users.where((u) {
-                    return u.name.toLowerCase().contains(_searchQuery) ||
-                        u.email.toLowerCase().contains(_searchQuery);
-                  }).toList();
+                  users =
+                      users.where((u) {
+                        return u.name.toLowerCase().contains(_searchQuery) ||
+                            u.email.toLowerCase().contains(_searchQuery);
+                      }).toList();
                 }
 
                 if (users.isEmpty) {
@@ -368,13 +517,19 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         Icon(
                           Icons.person_off_outlined,
                           size: 64,
-                          color: isDark ? AppColors.neutral600 : AppColors.neutral400,
+                          color:
+                              isDark
+                                  ? AppColors.neutral600
+                                  : AppColors.neutral400,
                         ),
                         const SizedBox(height: AppSpacing.md),
                         Text(
                           'No users found',
                           style: theme.textTheme.bodyLarge?.copyWith(
-                            color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                            color:
+                                isDark
+                                    ? AppColors.neutral400
+                                    : AppColors.neutral600,
                           ),
                         ),
                       ],
@@ -385,7 +540,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
                   itemCount: users.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.xs),
+                  separatorBuilder:
+                      (context, index) => const SizedBox(height: AppSpacing.xs),
                   itemBuilder: (context, index) {
                     final user = users[index];
                     return _buildUserTile(user, theme, isDark);
@@ -407,28 +563,28 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 6,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : (isDark ? AppColors.neutral800 : AppColors.neutral100),
+          color:
+              isSelected
+                  ? theme.colorScheme.primary
+                  : (isDark ? AppColors.neutral800 : AppColors.neutral100),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : (isDark ? AppColors.neutral700 : AppColors.neutral300),
+            color:
+                isSelected
+                    ? theme.colorScheme.primary
+                    : (isDark ? AppColors.neutral700 : AppColors.neutral300),
             width: 1,
           ),
         ),
         child: Text(
           label,
           style: theme.textTheme.bodySmall?.copyWith(
-            color: isSelected
-                ? Colors.white
-                : (isDark ? AppColors.neutral300 : AppColors.neutral700),
+            color:
+                isSelected
+                    ? Colors.white
+                    : (isDark ? AppColors.neutral300 : AppColors.neutral700),
             fontSize: 13,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
           ),
@@ -473,7 +629,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               ),
             ),
             const SizedBox(width: AppSpacing.md),
-            
+
             // User Info
             Expanded(
               child: Column(
@@ -520,12 +676,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  
-                  // Email only
+
+                  // Role badge
                   Text(
-                    user.email,
+                    _getRoleText(user.role),
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      color:
+                          isDark ? AppColors.neutral400 : AppColors.neutral600,
                       fontSize: 12,
                     ),
                     maxLines: 1,
@@ -534,7 +691,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 ],
               ),
             ),
-            
+
             // Actions Menu
             PopupMenuButton<String>(
               icon: Icon(
@@ -560,36 +717,46 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     break;
                 }
               },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'view_tasks',
-                  height: 40,
-                  child: Row(
-                    children: const [
-                      Icon(Icons.assignment_outlined, size: 16),
-                      SizedBox(width: 8),
-                      Text('View Tasks', style: TextStyle(fontSize: 14)),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'change_role',
-                  height: 40,
-                  child: Text('Change Role', style: TextStyle(fontSize: 14)),
-                ),
-                if (!isRevoked)
-                  PopupMenuItem(
-                    value: 'revoke',
-                    height: 40,
-                    child: Text('Revoke Access', style: TextStyle(fontSize: 14)),
-                  )
-                else
-                  PopupMenuItem(
-                    value: 'restore',
-                    height: 40,
-                    child: Text('Restore Access', style: TextStyle(fontSize: 14)),
-                  ),
-              ],
+              itemBuilder:
+                  (context) => [
+                    PopupMenuItem(
+                      value: 'view_tasks',
+                      height: 40,
+                      child: Row(
+                        children: const [
+                          Icon(Icons.assignment_outlined, size: 16),
+                          SizedBox(width: 8),
+                          Text('View Tasks', style: TextStyle(fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'change_role',
+                      height: 40,
+                      child: Text(
+                        'Change Role',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    if (!isRevoked)
+                      PopupMenuItem(
+                        value: 'revoke',
+                        height: 40,
+                        child: Text(
+                          'Revoke Access',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      )
+                    else
+                      PopupMenuItem(
+                        value: 'restore',
+                        height: 40,
+                        child: Text(
+                          'Restore Access',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                      ),
+                  ],
             ),
           ],
         ),
@@ -600,12 +767,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   // Compact role badge
   Widget _buildCompactRoleBadge(UserRole role, ThemeData theme) {
     final roleConfig = _getRoleConfig(role);
-    
+
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 6,
-        vertical: 2,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: roleConfig['color'].withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),

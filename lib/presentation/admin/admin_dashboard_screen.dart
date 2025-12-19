@@ -156,9 +156,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         return StreamBuilder<List<TaskModel>>(
                           stream:
                               currentUser != null
-                                  ? _taskRepository.getOngoingTasksStream(
-                                    currentUser.id,
-                                  )
+                                  ? _taskRepository
+                                      .getOngoingAssignedTasksStream(
+                                        currentUser.id,
+                                      )
                                   : const Stream.empty(),
                           builder: (context, myTasksSnapshot) {
                             final myOngoingTasks =
