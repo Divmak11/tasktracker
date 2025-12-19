@@ -34,15 +34,16 @@ class _LoginScreenState extends State<LoginScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    AppColors.neutral900,
-                    theme.colorScheme.primary.withValues(alpha: 0.2),
-                  ]
-                : [
-                    theme.colorScheme.primary.withValues(alpha: 0.05),
-                    Colors.white,
-                  ],
+            colors:
+                isDark
+                    ? [
+                      AppColors.neutral900,
+                      theme.colorScheme.primary.withValues(alpha: 0.2),
+                    ]
+                    : [
+                      theme.colorScheme.primary.withValues(alpha: 0.05),
+                      Colors.white,
+                    ],
           ),
         ),
         child: SafeArea(
@@ -63,7 +64,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.3,
+                          ),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -91,7 +94,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     'Organize. Delegate. Complete.',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      color:
+                          isDark ? AppColors.neutral400 : AppColors.neutral600,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -172,11 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // Fixed width container for icon to ensure column alignment
         SizedBox(
           width: 24,
-          child: Icon(
-            icon,
-            size: 20,
-            color: theme.colorScheme.primary,
-          ),
+          child: Icon(icon, size: 20, color: theme.colorScheme.primary),
         ),
         const SizedBox(width: AppSpacing.sm),
         SizedBox(
@@ -207,10 +207,12 @@ class _LoginScreenState extends State<LoginScreen> {
               color: theme.colorScheme.primary,
               fontWeight: FontWeight.w600,
             ),
-            recognizer: TapGestureRecognizer()
-              ..onTap = () => _launchUrl(
-                    'https://drive.google.com/file/d/TERMS_OF_SERVICE_ID/view',
-                  ),
+            recognizer:
+                TapGestureRecognizer()
+                  ..onTap =
+                      () => _launchUrl(
+                        'https://todoplannerapp.com/terms',
+                      ),
           ),
           const TextSpan(text: '\nand '),
           TextSpan(
@@ -219,10 +221,12 @@ class _LoginScreenState extends State<LoginScreen> {
               color: theme.colorScheme.primary,
               fontWeight: FontWeight.w600,
             ),
-            recognizer: TapGestureRecognizer()
-              ..onTap = () => _launchUrl(
-                    'https://drive.google.com/file/d/PRIVACY_POLICY_ID/view',
-                  ),
+            recognizer:
+                TapGestureRecognizer()
+                  ..onTap =
+                      () => _launchUrl(
+                        'https://todoplannerapp.com/privacy',
+                      ),
           ),
           const TextSpan(text: '.'),
         ],
@@ -245,13 +249,16 @@ class _LoginScreenState extends State<LoginScreen> {
       // Navigation is handled automatically by auth state listener in AppRouter
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign-in failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -264,13 +271,16 @@ class _LoginScreenState extends State<LoginScreen> {
       // Navigation is handled automatically by auth state listener in AppRouter
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign-in failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
