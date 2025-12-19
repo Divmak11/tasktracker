@@ -221,6 +221,16 @@ class TaskTile extends StatelessWidget {
   }
 
   String _buildAssigneeLabel() {
+    // Handle multi-assignee tasks
+    if (task.isMultiAssignee) {
+      final count = task.assigneeIds.length;
+      if (count > 1) {
+        final firstName = assignee?.name.split(' ').first ?? 'Unknown';
+        return '$firstName +${count - 1} more';
+      }
+    }
+
+    // Handle legacy additional assignees display
     final name = assignee?.name ?? 'Unknown';
     if (additionalAssigneeNames != null &&
         additionalAssigneeNames!.isNotEmpty) {
@@ -292,11 +302,15 @@ class TaskTile extends StatelessWidget {
     final tomorrow = today.add(const Duration(days: 1));
     final deadlineDate = DateTime(deadline.year, deadline.month, deadline.day);
 
+    // Only show overdue text for ongoing tasks
+    final isOngoing = task.status == TaskStatus.ongoing;
+
     if (deadlineDate == today) {
       return 'Today ${DateFormat.jm().format(deadline)}';
     } else if (deadlineDate == tomorrow) {
       return 'Tomorrow ${DateFormat.jm().format(deadline)}';
-    } else if (deadline.isBefore(now)) {
+    } else if (deadline.isBefore(now) && isOngoing) {
+      // Only show "X days overdue" for ongoing tasks
       final daysAgo = now.difference(deadline).inDays;
       if (daysAgo == 0) {
         return 'Overdue ${DateFormat.jm().format(deadline)}';

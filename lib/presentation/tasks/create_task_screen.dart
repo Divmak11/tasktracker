@@ -36,6 +36,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   AssignmentType _assignmentType = AssignmentType.member;
   // For multiple member selection
   final List<UserModel> _selectedAssignees = [];
+  final List<String> _supervisorIds = [];
   // For team selection (single)
   String? _selectedTeamId;
   bool _isLoading = false;
@@ -65,6 +66,38 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       initialTime: TimeOfDay.now(),
     );
     if (picked != null) {
+      // If user selected today, validate time is not in the past
+      if (_selectedDate != null) {
+        final now = DateTime.now();
+        final isToday =
+            _selectedDate!.year == now.year &&
+            _selectedDate!.month == now.month &&
+            _selectedDate!.day == now.day;
+
+        if (isToday) {
+          final selectedDateTime = DateTime(
+            _selectedDate!.year,
+            _selectedDate!.month,
+            _selectedDate!.day,
+            picked.hour,
+            picked.minute,
+          );
+
+          if (selectedDateTime.isBefore(now)) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Selected time is in the past. Please choose a future time.',
+                  ),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            return; // Don't set the time
+          }
+        }
+      }
       setState(() => _selectedTime = picked);
     }
   }
@@ -158,6 +191,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           assignedType: assignedTypeStr,
           assignedTo: assigneeId,
           deadline: deadline,
+          supervisorIds: _supervisorIds.isNotEmpty ? _supervisorIds : null,
         );
 
         if (mounted) {
@@ -267,6 +301,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           setState(() {
                             _assignmentType = newSelection.first;
                             _selectedAssignees.clear();
+                            _supervisorIds.clear();
                             _selectedTeamId = null;
                           });
                         },
@@ -522,20 +557,26 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   /// Open the full-screen assignee selection
   Future<void> _openAssigneeSelector() async {
-    final result = await Navigator.push<List<UserModel>>(
+    final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder:
-            (context) =>
-                AssigneeSelectionScreen(initiallySelected: _selectedAssignees),
+            (context) => AssigneeSelectionScreen(
+              initiallySelected: _selectedAssignees,
+              initialSupervisorIds: _supervisorIds,
+            ),
       ),
     );
 
     if (result != null && mounted) {
       setState(() {
         _selectedAssignees.clear();
-        _selectedAssignees.addAll(result);
+        _selectedAssignees.addAll((result['users'] as List<UserModel>?) ?? []);
+        _supervisorIds.clear();
+        _supervisorIds.addAll((result['supervisorIds'] as List<String>?) ?? []);
       });
+      // Unfocus any text field to prevent keyboard from auto-opening
+      FocusManager.instance.primaryFocus?.unfocus();
     }
   }
 

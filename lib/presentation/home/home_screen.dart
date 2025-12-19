@@ -50,6 +50,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   static const String _calendarGuideShownKey = 'calendar_guide_shown';
 
+  // Cooldown for calendar token refresh to avoid refreshing on every visit
+  static DateTime? _lastCalendarRefresh;
+  static const Duration _calendarRefreshCooldown = Duration(minutes: 30);
+
   @override
   void initState() {
     super.initState();
@@ -62,10 +66,60 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _refreshCalendarTokenIfNeeded() async {
+    // Skip if refreshed recently (within cooldown period)
+    if (_lastCalendarRefresh != null &&
+        DateTime.now().difference(_lastCalendarRefresh!) <
+            _calendarRefreshCooldown) {
+      debugPrint('📅 Calendar token refresh skipped (within cooldown)');
+      return;
+    }
+
     final authProvider = context.read<AuthProvider>();
     final currentUser = authProvider.currentUser;
     if (currentUser?.googleCalendarConnected == true) {
-      await _calendarService.refreshAccessToken(currentUser!.id);
+      final result = await _calendarService.refreshAccessToken(currentUser!.id);
+      _lastCalendarRefresh = DateTime.now();
+
+      if (!mounted) return;
+
+      switch (result) {
+        case CalendarRefreshResult.success:
+          debugPrint('📅 Calendar token refreshed successfully');
+          break;
+        case CalendarRefreshResult.failed:
+          debugPrint('📅 Calendar token refresh failed');
+          // Show non-intrusive message only if user might notice sync issues
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Calendar sync may be delayed. Check settings if events don\'t appear.',
+              ),
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'Settings',
+                onPressed: () => context.push(AppRoutes.settings),
+              ),
+            ),
+          );
+          break;
+        case CalendarRefreshResult.reconnectNeeded:
+          debugPrint('📅 Calendar reconnection needed');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Calendar disconnected. Please reconnect in Settings.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Reconnect',
+                textColor: Colors.white,
+                onPressed: () => context.push(AppRoutes.settings),
+              ),
+            ),
+          );
+          break;
+      }
     }
   }
 
@@ -139,14 +193,16 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // Get or create cached streams
+  // Get or create cached streams (supports both legacy and multi-assignee tasks)
   Stream<List<TaskModel>> _getOngoingStream(String userId) {
-    _ongoingTasksStream ??= _taskRepository.getOngoingTasksStream(userId);
+    _ongoingTasksStream ??= _taskRepository.getOngoingAssignedTasksStream(
+      userId,
+    );
     return _ongoingTasksStream!;
   }
 
   Stream<List<TaskModel>> _getPastStream(String userId) {
-    _pastTasksStream ??= _taskRepository.getPastTasksStream(userId);
+    _pastTasksStream ??= _taskRepository.getPastAssignedTasksStream(userId);
     return _pastTasksStream!;
   }
 
@@ -365,17 +421,17 @@ class _HomeScreenState extends State<HomeScreen>
         // Prefetch all unique user IDs (creators and assignees)
         final userIds = <String>{
           ...tasks.map((t) => t.createdBy),
-          ...tasks.map((t) => t.assignedTo),
+          ...tasks.expand((t) => t.allAssigneeIds),
         };
 
         // Get unique assignees for filter dropdown
         final uniqueAssigneeIds =
-            tasks.map((t) => t.assignedTo).toSet().toList();
+            tasks.expand((t) => t.allAssigneeIds).toSet().toList();
 
         // Apply filter if specified
         final filteredTasks =
             selectedUserId != null
-                ? tasks.where((t) => t.assignedTo == selectedUserId).toList()
+                ? tasks.where((t) => t.isAssignee(selectedUserId)).toList()
                 : tasks;
 
         return FutureBuilder<void>(
@@ -451,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 ...filterUsers.map((user) {
                                   final count =
                                       tasks
-                                          .where((t) => t.assignedTo == user.id)
+                                          .where((t) => t.isAssignee(user.id))
                                           .length;
                                   return DropdownMenuItem<String?>(
                                     value: user.id,
@@ -501,7 +557,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 return TaskCard(
                                   task: task,
                                   creator: _userCache[task.createdBy],
-                                  assignee: _userCache[task.assignedTo],
+                                  assignee: _userCache[task.primaryAssigneeId],
                                 );
                               },
                             ),

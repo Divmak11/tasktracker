@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/task_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/remark_model.dart';
+import '../../data/models/task_assignment_model.dart';
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/remark_repository.dart';
@@ -48,9 +49,12 @@ class TaskDetailScreen extends StatelessWidget {
           }
 
           final task = taskSnapshot.data!;
-          final isCreator = currentUser?.id == task.createdBy;
-          final isAssignee = currentUser?.id == task.assignedTo;
+          final currentUserId = currentUser?.id ?? '';
+          final isCreator = task.isCreator(currentUserId);
+          final isAssignee = task.isAssignee(currentUserId);
           final isAdmin = currentUser?.role == UserRole.superAdmin;
+          final canSeeAllStatus = task.canSeeAllCompletionStatus(currentUserId);
+
           // Only allow edit/cancel for ongoing tasks
           final canEdit =
               (isCreator || isAdmin) && task.status == TaskStatus.ongoing;
@@ -252,22 +256,63 @@ class TaskDetailScreen extends StatelessWidget {
                         ),
                         child: Column(
                           children: [
-                            // Assigned To Row
-                            StreamBuilder<UserModel?>(
-                              stream: userRepository.getUserStream(
-                                task.assignedTo,
-                              ),
-                              builder: (context, assigneeSnapshot) {
-                                final assignee = assigneeSnapshot.data;
-                                return _buildCompactUserRow(
-                                  context,
-                                  label: 'Assigned to',
-                                  user: assignee,
-                                  color: theme.colorScheme.primary,
-                                  icon: Icons.person,
+                            // Assigned To Row(s) - show all assignees for multi-assignee tasks
+                            if (task.isMultiAssignee) ...[
+                              // Show all assignees for multi-assignee tasks
+                              ...task.assigneeIds.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final assigneeId = entry.value;
+                                return Column(
+                                  children: [
+                                    StreamBuilder<UserModel?>(
+                                      stream: userRepository.getUserStream(
+                                        assigneeId,
+                                      ),
+                                      builder: (context, assigneeSnapshot) {
+                                        final assignee = assigneeSnapshot.data;
+                                        final isSupervisor = task.supervisorIds
+                                            .contains(assigneeId);
+                                        return _buildCompactUserRow(
+                                          context,
+                                          label:
+                                              index == 0
+                                                  ? 'Assigned to (${task.assigneeIds.length})'
+                                                  : '',
+                                          user: assignee,
+                                          color: theme.colorScheme.primary,
+                                          icon:
+                                              isSupervisor
+                                                  ? Icons.supervisor_account
+                                                  : Icons.person,
+                                        );
+                                      },
+                                    ),
+                                    if (index < task.assigneeIds.length - 1)
+                                      const SizedBox(height: AppSpacing.xs),
+                                  ],
                                 );
-                              },
-                            ),
+                              }),
+                            ] else ...[
+                              // Single assignee
+                              StreamBuilder<UserModel?>(
+                                stream:
+                                    task.primaryAssigneeId.isNotEmpty
+                                        ? userRepository.getUserStream(
+                                          task.primaryAssigneeId,
+                                        )
+                                        : const Stream.empty(),
+                                builder: (context, assigneeSnapshot) {
+                                  final assignee = assigneeSnapshot.data;
+                                  return _buildCompactUserRow(
+                                    context,
+                                    label: 'Assigned to',
+                                    user: assignee,
+                                    color: theme.colorScheme.primary,
+                                    icon: Icons.person,
+                                  );
+                                },
+                              ),
+                            ],
                             const SizedBox(height: AppSpacing.sm),
                             Divider(
                               height: 1,
@@ -297,6 +342,232 @@ class TaskDetailScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.lg),
+
+                      // Multi-Assignee Status Table (for creator/supervisor only)
+                      if (task.isMultiAssignee && canSeeAllStatus) ...[
+                        Text(
+                          'Assignee Progress',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        StreamBuilder<List<TaskAssignmentModel>>(
+                          stream: taskRepository.getTaskAssignmentsStream(
+                            taskId,
+                          ),
+                          builder: (context, assignmentsSnapshot) {
+                            if (!assignmentsSnapshot.hasData) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
+
+                            final assignments = assignmentsSnapshot.data!;
+                            if (assignments.isEmpty) {
+                              return const Text('No assignments found');
+                            }
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                color:
+                                    isDark
+                                        ? AppColors.neutral900
+                                        : AppColors.neutral50,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.medium,
+                                ),
+                                border: Border.all(
+                                  color:
+                                      isDark
+                                          ? AppColors.neutral800
+                                          : AppColors.neutral200,
+                                ),
+                              ),
+                              child: Column(
+                                children:
+                                    assignments.map((assignment) {
+                                      return StreamBuilder<UserModel?>(
+                                        stream: userRepository.getUserStream(
+                                          assignment.userId,
+                                        ),
+                                        builder: (context, userSnapshot) {
+                                          final user = userSnapshot.data;
+                                          final isSup = task.supervisorIds
+                                              .contains(assignment.userId);
+
+                                          return Container(
+                                            padding: const EdgeInsets.all(
+                                              AppSpacing.md,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              border: Border(
+                                                bottom: BorderSide(
+                                                  color:
+                                                      isDark
+                                                          ? AppColors.neutral800
+                                                          : AppColors
+                                                              .neutral200,
+                                                ),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                CircleAvatar(
+                                                  radius: 16,
+                                                  backgroundColor:
+                                                      theme
+                                                          .colorScheme
+                                                          .primaryContainer,
+                                                  backgroundImage:
+                                                      user?.avatarUrl != null
+                                                          ? NetworkImage(
+                                                            user!.avatarUrl!,
+                                                          )
+                                                          : null,
+                                                  child:
+                                                      user?.avatarUrl == null
+                                                          ? Text(
+                                                            user?.name.isNotEmpty ==
+                                                                    true
+                                                                ? user!.name[0]
+                                                                    .toUpperCase()
+                                                                : '?',
+                                                            style: TextStyle(
+                                                              fontSize: 12,
+                                                              color:
+                                                                  theme
+                                                                      .colorScheme
+                                                                      .onPrimaryContainer,
+                                                            ),
+                                                          )
+                                                          : null,
+                                                ),
+                                                const SizedBox(
+                                                  width: AppSpacing.sm,
+                                                ),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Row(
+                                                        children: [
+                                                          Flexible(
+                                                            child: Text(
+                                                              user?.name ??
+                                                                  'Unknown',
+                                                              style: theme
+                                                                  .textTheme
+                                                                  .bodyMedium
+                                                                  ?.copyWith(
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w500,
+                                                                  ),
+                                                            ),
+                                                          ),
+                                                          if (isSup) ...[
+                                                            const SizedBox(
+                                                              width:
+                                                                  AppSpacing.xs,
+                                                            ),
+                                                            Container(
+                                                              padding:
+                                                                  const EdgeInsets.symmetric(
+                                                                    horizontal:
+                                                                        AppSpacing
+                                                                            .xs,
+                                                                    vertical: 2,
+                                                                  ),
+                                                              decoration: BoxDecoration(
+                                                                color:
+                                                                    theme
+                                                                        .colorScheme
+                                                                        .secondary,
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      AppRadius
+                                                                          .small,
+                                                                    ),
+                                                              ),
+                                                              child: Text(
+                                                                'S',
+                                                                style: theme
+                                                                    .textTheme
+                                                                    .labelSmall
+                                                                    ?.copyWith(
+                                                                      color:
+                                                                          theme
+                                                                              .colorScheme
+                                                                              .onSecondary,
+                                                                      fontSize:
+                                                                          9,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .bold,
+                                                                    ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ],
+                                                      ),
+                                                      if (assignment
+                                                              .isCompleted &&
+                                                          assignment
+                                                                  .completedAt !=
+                                                              null)
+                                                        Text(
+                                                          'Completed ${DateFormat('MMM d, h:mm a').format(assignment.completedAt!)}',
+                                                          style: theme
+                                                              .textTheme
+                                                              .bodySmall
+                                                              ?.copyWith(
+                                                                color:
+                                                                    Colors
+                                                                        .green,
+                                                                fontSize: 11,
+                                                              ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                Icon(
+                                                  assignment.isCompleted
+                                                      ? Icons.check_circle
+                                                      : (assignment.isOverdue(
+                                                            task.deadline,
+                                                          )
+                                                          ? Icons.error
+                                                          : Icons
+                                                              .radio_button_unchecked),
+                                                  color:
+                                                      assignment.isCompleted
+                                                          ? Colors.green
+                                                          : (assignment.isOverdue(
+                                                                task.deadline,
+                                                              )
+                                                              ? Colors.red
+                                                              : (isDark
+                                                                  ? AppColors
+                                                                      .neutral500
+                                                                  : AppColors
+                                                                      .neutral400)),
+                                                  size: 20,
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      );
+                                    }).toList(),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                      ],
 
                       // Remarks Section
                       Row(
@@ -613,59 +884,85 @@ class TaskDetailScreen extends StatelessWidget {
           child: Icon(icon, size: 16, color: color),
         ),
         const SizedBox(width: AppSpacing.sm),
-        // Label
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: isDark ? AppColors.neutral500 : AppColors.neutral500,
-          ),
-        ),
-        const Spacer(),
-        // User info
-        if (user != null) ...[
-          CircleAvatar(
-            radius: 14,
-            backgroundColor: color.withValues(alpha: 0.2),
-            backgroundImage:
-                user.avatarUrl != null ? NetworkImage(user.avatarUrl!) : null,
-            child:
-                user.avatarUrl == null
-                    ? Text(
-                      user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    )
-                    : null,
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                user.name,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                _getRoleLabel(user.role),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: isDark ? AppColors.neutral500 : AppColors.neutral500,
-                ),
-              ),
-            ],
-          ),
-        ] else ...[
-          Text(
-            'Loading...',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+        // Label - fixed width to give more space to name
+        SizedBox(
+          width: 100,
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: isDark ? AppColors.neutral500 : AppColors.neutral500,
             ),
           ),
-        ],
+        ),
+        // User info - takes remaining space
+        Expanded(
+          child:
+              user != null
+                  ? Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              user.name,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.end,
+                            ),
+                            Text(
+                              _getRoleLabel(user.role),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color:
+                                    isDark
+                                        ? AppColors.neutral500
+                                        : AppColors.neutral500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: color.withValues(alpha: 0.2),
+                        backgroundImage:
+                            user.avatarUrl != null
+                                ? NetworkImage(user.avatarUrl!)
+                                : null,
+                        child:
+                            user.avatarUrl == null
+                                ? Text(
+                                  user.name.isNotEmpty
+                                      ? user.name[0].toUpperCase()
+                                      : '?',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: color,
+                                  ),
+                                )
+                                : null,
+                      ),
+                    ],
+                  )
+                  : Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'Loading...',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color:
+                            isDark
+                                ? AppColors.neutral500
+                                : AppColors.neutral400,
+                      ),
+                    ),
+                  ),
+        ),
       ],
     );
   }
@@ -707,10 +1004,15 @@ class TaskDetailScreen extends StatelessWidget {
 
     if (confirmed == true && context.mounted) {
       // OPTIMISTIC UPDATE: Show success immediately
+      // Use different message for multi-assignee tasks
+      final isMultiAssignee = task.isMultiAssignee;
       NotificationService.showInAppNotification(
         context,
-        title: 'Task Completed',
-        message: 'Task marked as completed',
+        title: isMultiAssignee ? 'Assignment Completed' : 'Task Completed',
+        message:
+            isMultiAssignee
+                ? 'Your assignment has been marked as completed'
+                : 'Task marked as completed',
         icon: Icons.check_circle,
         backgroundColor: Colors.green.shade700,
       );
@@ -720,8 +1022,13 @@ class TaskDetailScreen extends StatelessWidget {
 
       // Fire cloud function in background (don't await)
       // Firestore stream will auto-update UI with server state
+      // Use completeAssignment for multi-assignee, completeTask for legacy
       final cloudFunctions = CloudFunctionsService();
-      cloudFunctions.completeTask(task.id).catchError((error) {
+      final future =
+          isMultiAssignee
+              ? cloudFunctions.completeAssignment(task.id)
+              : cloudFunctions.completeTask(task.id);
+      future.catchError((error) {
         // Show error with retry if background sync fails
         // UI will naturally revert via Firestore stream since server wasn't updated
         if (context.mounted) {

@@ -4,11 +4,16 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/repositories/user_repository.dart';
 
-/// Full-screen modal for selecting task assignees
+/// Full-screen modal for selecting task assignees with supervisor support
 class AssigneeSelectionScreen extends StatefulWidget {
   final List<UserModel> initiallySelected;
+  final List<String> initialSupervisorIds;
 
-  const AssigneeSelectionScreen({super.key, this.initiallySelected = const []});
+  const AssigneeSelectionScreen({
+    super.key,
+    this.initiallySelected = const [],
+    this.initialSupervisorIds = const [],
+  });
 
   @override
   State<AssigneeSelectionScreen> createState() =>
@@ -19,6 +24,7 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
   final UserRepository _userRepository = UserRepository();
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _selectedIds = {};
+  final Set<String> _supervisorIds = {};
   String _searchQuery = '';
 
   @override
@@ -26,6 +32,7 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
     super.initState();
     // Pre-populate with initially selected users
     _selectedIds.addAll(widget.initiallySelected.map((u) => u.id));
+    _supervisorIds.addAll(widget.initialSupervisorIds);
   }
 
   @override
@@ -210,11 +217,15 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
     ThemeData theme,
     bool isDark,
   ) {
+    final isSupervisor = _supervisorIds.contains(user.id);
+    final canBeSupervisor = isSelected && _selectedIds.length > 1;
+
     return ListTile(
       onTap: () {
         setState(() {
           if (isSelected) {
             _selectedIds.remove(user.id);
+            _supervisorIds.remove(user.id);
           } else {
             _selectedIds.add(user.id);
           }
@@ -263,17 +274,90 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
             ),
         ],
       ),
-      title: Text(
-        user.name,
-        style: theme.textTheme.bodyLarge?.copyWith(
-          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-        ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              user.name,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+          if (isSupervisor)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondary,
+                borderRadius: BorderRadius.circular(AppRadius.small),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.supervisor_account,
+                    size: 12,
+                    color: theme.colorScheme.onSecondary,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    'Supervisor',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSecondary,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
-      subtitle: Text(
-        user.email,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: isDark ? AppColors.neutral400 : AppColors.neutral600,
-        ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _getRoleDisplayName(user.role),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+            ),
+          ),
+          if (canBeSupervisor) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                Checkbox(
+                  value: isSupervisor,
+                  onChanged: (value) {
+                    setState(() {
+                      if (value == true) {
+                        _supervisorIds.add(user.id);
+                      } else {
+                        _supervisorIds.remove(user.id);
+                      }
+                    });
+                  },
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    'Can view all assignees\' status',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color:
+                          isDark ? AppColors.neutral500 : AppColors.neutral600,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
       trailing: Checkbox(
         value: isSelected,
@@ -283,6 +367,7 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
               _selectedIds.add(user.id);
             } else {
               _selectedIds.remove(user.id);
+              _supervisorIds.remove(user.id);
             }
           });
         },
@@ -298,7 +383,29 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
         allUsers.where((u) => _selectedIds.contains(u.id)).toList();
 
     if (mounted) {
-      Navigator.pop(context, selectedUsers);
+      Navigator.pop(context, {
+        'users': selectedUsers,
+        'supervisorIds': _supervisorIds.toList(),
+      });
     }
   }
+
+  String _getRoleDisplayName(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'Super Admin';
+      case UserRole.teamAdmin:
+        return 'Team Admin';
+      case UserRole.member:
+        return 'Member';
+    }
+  }
+}
+
+/// Result data structure for assignee selection
+class AssigneeSelectionResult {
+  final List<UserModel> users;
+  final List<String> supervisorIds;
+
+  AssigneeSelectionResult({required this.users, required this.supervisorIds});
 }
