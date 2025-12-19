@@ -1,7 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
 import 'core/constants/app_strings.dart';
+import 'core/constants/env_config.dart';
 import 'core/router/app_router.dart';
 import 'data/providers/auth_provider.dart';
 import 'data/providers/theme_provider.dart';
@@ -16,22 +17,26 @@ import 'data/providers/theme_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment variables
+  // Load environment variables first (needed for EnvConfig)
   await dotenv.load(fileName: ".env");
+
+  // Set up global error handlers
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    // Only print detailed error info in development mode
+    if (!EnvConfig.isProduction) {
+      debugPrint('🔴 Flutter Error: ${details.exception}');
+      debugPrint('Stack trace: ${details.stack}');
+    }
+    // In production, you could send this to a crash reporting service like Crashlytics
+  };
 
   // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Configure Firebase Auth persistence to keep users logged in
-  // This ensures users don't get logged out unexpectedly
-  try {
-    await firebase_auth.FirebaseAuth.instance.setPersistence(
-      firebase_auth.Persistence.LOCAL,
-    );
-    debugPrint('✅ Firebase Auth persistence set to LOCAL');
-  } catch (e) {
-    debugPrint('⚠️ Failed to set Firebase Auth persistence: $e');
-  }
+  // Note: Firebase Auth persistence is automatically enabled on mobile platforms
+  // setPersistence() is only supported on web and will throw UnimplementedError on mobile
+  // Mobile apps have persistent auth by default - no configuration needed
 
   // Enable Firestore persistence for offline support and faster reads
   FirebaseFirestore.instance.settings = const Settings(
@@ -48,7 +53,13 @@ void main() async {
 
   // Initialize Theme
   final themeProvider = ThemeProvider();
-  await themeProvider.initialize();
+  try {
+    await themeProvider.initialize();
+    debugPrint('✅ Theme provider initialized');
+  } catch (e) {
+    debugPrint('⚠️ Failed to initialize theme provider: $e');
+    // App will continue with default theme
+  }
 
   runApp(MyApp(themeProvider: themeProvider));
 }

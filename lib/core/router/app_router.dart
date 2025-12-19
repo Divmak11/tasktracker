@@ -5,6 +5,7 @@ import '../../presentation/auth/signup_screen.dart';
 import '../../presentation/auth/request_pending_screen.dart';
 import '../../presentation/auth/access_revoked_screen.dart';
 import '../../presentation/auth/onboarding_screen.dart';
+import '../../presentation/auth/enter_name_screen.dart';
 import '../../presentation/auth/splash_screen.dart';
 import '../../presentation/navigation/main_layout.dart';
 import '../../presentation/admin/admin_dashboard_screen.dart';
@@ -48,6 +49,7 @@ class AppRouter {
         final currentPath = state.matchedLocation;
         final isOnSplashPage = currentPath == '/';
         final isOnLoginPage = currentPath == AppRoutes.login;
+        final isOnEnterNamePage = currentPath == AppRoutes.enterName;
         final isOnPendingPage = currentPath == AppRoutes.requestPending;
         final isOnRevokedPage = currentPath == AppRoutes.accessRevoked;
 
@@ -75,6 +77,14 @@ class AppRouter {
           return isOnSplashPage ? null : '/';
         }
 
+        // Check if user needs to complete onboarding (enter name)
+        if (currentUser.needsOnboarding) {
+          debugPrint(
+            '🔀 User needs onboarding, redirecting to enter-name page',
+          );
+          return isOnEnterNamePage ? null : AppRoutes.enterName;
+        }
+
         // Check user status
         if (currentUser.status == UserStatus.pending) {
           debugPrint('🔀 User pending, redirecting to pending page');
@@ -86,8 +96,9 @@ class AppRouter {
           return isOnRevokedPage ? null : AppRoutes.accessRevoked;
         }
 
-        // User is active - redirect from login/pending/revoked/splash to appropriate home
+        // User is active - redirect from login/pending/revoked/splash/enter-name to appropriate home
         if (isOnLoginPage ||
+            isOnEnterNamePage ||
             isOnPendingPage ||
             isOnRevokedPage ||
             isOnSplashPage) {
@@ -123,6 +134,10 @@ class AppRouter {
         GoRoute(
           path: AppRoutes.onboarding,
           builder: (context, state) => const OnboardingScreen(),
+        ),
+        GoRoute(
+          path: AppRoutes.enterName,
+          builder: (context, state) => const EnterNameScreen(),
         ),
         // Authenticated Routes (with Bottom Navigation)
         ShellRoute(
@@ -233,26 +248,24 @@ class AppRouter {
             GoRoute(
               path: AppRoutes.home,
               builder: (context, state) => const HomeScreen(),
+            ),
+            GoRoute(
+              path: '/task/create',
+              builder: (context, state) => const CreateTaskScreen(),
+            ),
+            GoRoute(
+              path: '/task/:id',
+              builder: (context, state) {
+                final id = state.pathParameters['id']!;
+                return TaskDetailScreen(taskId: id);
+              },
               routes: [
                 GoRoute(
-                  path: 'task/create',
-                  builder: (context, state) => const CreateTaskScreen(),
-                ),
-                GoRoute(
-                  path: 'task/:id',
+                  path: 'edit',
                   builder: (context, state) {
                     final id = state.pathParameters['id']!;
-                    return TaskDetailScreen(taskId: id);
+                    return EditTaskScreen(taskId: id);
                   },
-                  routes: [
-                    GoRoute(
-                      path: 'edit',
-                      builder: (context, state) {
-                        final id = state.pathParameters['id']!;
-                        return EditTaskScreen(taskId: id);
-                      },
-                    ),
-                  ],
                 ),
               ],
             ),
