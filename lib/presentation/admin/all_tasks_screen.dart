@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/task_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/task_repository.dart';
 import '../../data/repositories/user_repository.dart';
-import '../common/cards/app_card.dart';
-import '../common/badges/status_badge.dart';
+import '../common/list_items/task_tile.dart';
 
 class AllTasksScreen extends StatefulWidget {
-  const AllTasksScreen({super.key});
+  /// Initial tab index: 0=All, 1=Ongoing, 2=Completed, 3=Cancelled
+  final int initialTabIndex;
+
+  const AllTasksScreen({super.key, this.initialTabIndex = 1});
 
   @override
   State<AllTasksScreen> createState() => _AllTasksScreenState();
@@ -24,10 +25,18 @@ class _AllTasksScreenState extends State<AllTasksScreen>
   final UserRepository _userRepository = UserRepository();
   late Stream<List<TaskModel>> _tasksStream;
 
+  // Filter state
+  String? _selectedAssigneeId;
+  String? _selectedAssigneeName;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, 3),
+    );
     _tasksStream = _taskRepository.getAllTasksStream();
   }
 
@@ -38,18 +47,153 @@ class _AllTasksScreenState extends State<AllTasksScreen>
   }
 
   List<TaskModel> _filterTasks(List<TaskModel> tasks, int tabIndex) {
+    List<TaskModel> filtered;
     switch (tabIndex) {
       case 0:
-        return tasks; // All
+        filtered = tasks; // All
+        break;
       case 1:
-        return tasks.where((t) => t.status == TaskStatus.ongoing).toList();
+        filtered = tasks.where((t) => t.status == TaskStatus.ongoing).toList();
+        break;
       case 2:
-        return tasks.where((t) => t.status == TaskStatus.completed).toList();
+        filtered =
+            tasks.where((t) => t.status == TaskStatus.completed).toList();
+        break;
       case 3:
-        return tasks.where((t) => t.status == TaskStatus.cancelled).toList();
+        filtered =
+            tasks.where((t) => t.status == TaskStatus.cancelled).toList();
+        break;
       default:
-        return tasks;
+        filtered = tasks;
     }
+
+    // Apply assignee filter if selected (supports both legacy and multi-assignee)
+    if (_selectedAssigneeId != null) {
+      filtered =
+          filtered.where((t) => t.isAssignee(_selectedAssigneeId!)).toList();
+    }
+
+    return filtered;
+  }
+
+  void _showAssigneeFilter(List<UserModel> users) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                // Handle bar
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.neutral600 : AppColors.neutral300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // Title
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Filter by Assignee',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_selectedAssigneeId != null)
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _selectedAssigneeId = null;
+                              _selectedAssigneeName = null;
+                            });
+                            Navigator.pop(context);
+                          },
+                          child: const Text('Clear'),
+                        ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                // User list
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: users.length,
+                    itemBuilder: (context, index) {
+                      final user = users[index];
+                      final isSelected = _selectedAssigneeId == user.id;
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor:
+                              isSelected
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.primaryContainer,
+                          backgroundImage:
+                              user.avatarUrl != null
+                                  ? NetworkImage(user.avatarUrl!)
+                                  : null,
+                          child:
+                              user.avatarUrl == null
+                                  ? Text(
+                                    user.name.isNotEmpty
+                                        ? user.name[0].toUpperCase()
+                                        : '?',
+                                    style: TextStyle(
+                                      color:
+                                          isSelected
+                                              ? Colors.white
+                                              : theme
+                                                  .colorScheme
+                                                  .onPrimaryContainer,
+                                    ),
+                                  )
+                                  : null,
+                        ),
+                        title: Text(user.name),
+                        subtitle: null,
+                        trailing:
+                            isSelected
+                                ? Icon(
+                                  Icons.check_circle,
+                                  color: theme.colorScheme.primary,
+                                )
+                                : null,
+                        onTap: () {
+                          setState(() {
+                            _selectedAssigneeId = user.id;
+                            _selectedAssigneeName = user.name;
+                          });
+                          Navigator.pop(context);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -60,21 +204,111 @@ class _AllTasksScreenState extends State<AllTasksScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('All Tasks'),
-        bottom: TabBar(
-          controller: _tabController,
-          onTap: (_) => setState(() {}),
-          tabs: const [
-            Tab(text: 'All'),
-            Tab(text: 'Ongoing'),
-            Tab(text: 'Completed'),
-            Tab(text: 'Cancelled'),
-          ],
+        actions: [
+          // Filter button
+          StreamBuilder<List<UserModel>>(
+            stream: _userRepository.getAllUsersStream(),
+            builder: (context, snapshot) {
+              final users =
+                  snapshot.data
+                      ?.where((u) => u.status == UserStatus.active)
+                      .toList() ??
+                  [];
+
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.filter_list),
+                    tooltip: 'Filter by assignee',
+                    onPressed:
+                        users.isNotEmpty
+                            ? () => _showAssigneeFilter(users)
+                            : null,
+                  ),
+                  if (_selectedAssigneeId != null)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: Size.fromHeight(
+            _selectedAssigneeName != null ? 84 : 48,
+          ),
+          child: Column(
+            children: [
+              TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'All'),
+                  Tab(text: 'Ongoing'),
+                  Tab(text: 'Completed'),
+                  Tab(text: 'Cancelled'),
+                ],
+              ),
+              // Active filter chip
+              if (_selectedAssigneeName != null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.xs,
+                  ),
+                  color: theme.colorScheme.primaryContainer.withValues(
+                    alpha: 0.3,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.filter_alt,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Text(
+                        'Filtered by: $_selectedAssigneeName',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedAssigneeId = null;
+                            _selectedAssigneeName = null;
+                          });
+                        },
+                        child: Icon(
+                          Icons.close,
+                          size: 18,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
       body: StreamBuilder<List<TaskModel>>(
         stream: _tasksStream,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
+        builder: (context, taskSnapshot) {
+          if (taskSnapshot.hasError) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -83,201 +317,110 @@ class _AllTasksScreenState extends State<AllTasksScreen>
                   const SizedBox(height: AppSpacing.md),
                   const Text('Error loading tasks'),
                   const SizedBox(height: AppSpacing.sm),
-                  Text('${snapshot.error}', style: theme.textTheme.bodySmall),
+                  Text(
+                    '${taskSnapshot.error}',
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ],
               ),
             );
           }
 
-          if (!snapshot.hasData) {
+          if (!taskSnapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final allTasks = snapshot.data!;
-          final filteredTasks = _filterTasks(allTasks, _tabController.index);
+          final allTasks = taskSnapshot.data!;
 
-          // Sort by deadline (most recent first)
-          filteredTasks.sort((a, b) => b.deadline.compareTo(a.deadline));
+          // Build TabBarView for swipeable tabs
+          return StreamBuilder<List<UserModel>>(
+            stream: _userRepository.getAllUsersStream(),
+            builder: (context, usersSnapshot) {
+              final usersMap = <String, UserModel>{};
+              if (usersSnapshot.hasData) {
+                for (final user in usersSnapshot.data!) {
+                  usersMap[user.id] = user;
+                }
+              }
 
-          if (filteredTasks.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inbox_outlined,
-                    size: 80,
-                    color: isDark ? AppColors.neutral600 : AppColors.neutral300,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  Text(
-                    'No Tasks Found',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color:
-                          isDark ? AppColors.neutral400 : AppColors.neutral600,
+              return TabBarView(
+                controller: _tabController,
+                children: List.generate(4, (tabIndex) {
+                  final filteredTasks = _filterTasks(allTasks, tabIndex);
+                  // Sort by deadline (most recent first)
+                  filteredTasks.sort(
+                    (a, b) => b.deadline.compareTo(a.deadline),
+                  );
+
+                  if (filteredTasks.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.inbox_outlined,
+                            size: 80,
+                            color:
+                                isDark
+                                    ? AppColors.neutral600
+                                    : AppColors.neutral300,
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          Text(
+                            _selectedAssigneeId != null
+                                ? 'No tasks for this assignee'
+                                : 'No Tasks Found',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color:
+                                  isDark
+                                      ? AppColors.neutral400
+                                      : AppColors.neutral600,
+                            ),
+                          ),
+                          if (_selectedAssigneeId != null) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedAssigneeId = null;
+                                  _selectedAssigneeName = null;
+                                });
+                              },
+                              icon: const Icon(Icons.clear),
+                              label: const Text('Clear filter'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(
+                      AppSpacing.screenPaddingMobile,
                     ),
-                  ),
-                ],
-              ),
-            );
-          }
+                    itemCount: filteredTasks.length,
+                    separatorBuilder:
+                        (_, __) => const SizedBox(height: AppSpacing.sm),
+                    itemBuilder: (context, index) {
+                      final task = filteredTasks[index];
+                      final assignee = usersMap[task.primaryAssigneeId];
+                      final creator = usersMap[task.createdBy];
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
-            itemCount: filteredTasks.length,
-            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
-            itemBuilder: (context, index) {
-              final task = filteredTasks[index];
-              return _buildTaskCard(context, task, theme, isDark);
+                      return TaskTile(
+                        task: task,
+                        assignee: assignee,
+                        creator: creator,
+                        onTap: () => context.push('/task/${task.id}'),
+                      );
+                    },
+                  );
+                }),
+              );
             },
           );
         },
       ),
     );
-  }
-
-  Widget _buildTaskCard(
-    BuildContext context,
-    TaskModel task,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    final isOverdue =
-        task.status == TaskStatus.ongoing &&
-        task.deadline.isBefore(DateTime.now());
-
-    return StreamBuilder<UserModel?>(
-      stream: _userRepository.getUserStream(task.assignedTo),
-      builder: (context, assigneeSnapshot) {
-        final assignee = assigneeSnapshot.data;
-
-        return AppCard(
-          type: AppCardType.standard,
-          onTap: () => context.push('/task/${task.id}'),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        task.title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    StatusBadge(status: _getStatusType(task.status, isOverdue)),
-                  ],
-                ),
-                if (task.subtitle.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    task.subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color:
-                          isDark ? AppColors.neutral400 : AppColors.neutral600,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.md),
-                // Metadata
-                Row(
-                  children: [
-                    // Assignee
-                    Expanded(
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 12,
-                            backgroundColor: theme.colorScheme.primaryContainer,
-                            backgroundImage:
-                                assignee?.avatarUrl != null
-                                    ? NetworkImage(assignee!.avatarUrl!)
-                                    : null,
-                            child:
-                                assignee?.avatarUrl == null
-                                    ? Text(
-                                      assignee?.name[0] ?? '?',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color:
-                                            theme
-                                                .colorScheme
-                                                .onPrimaryContainer,
-                                      ),
-                                    )
-                                    : null,
-                          ),
-                          const SizedBox(width: AppSpacing.xs),
-                          Expanded(
-                            child: Text(
-                              assignee?.name ?? 'Loading...',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Deadline
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.schedule,
-                          size: 14,
-                          color:
-                              isOverdue
-                                  ? Colors.red
-                                  : (isDark
-                                      ? AppColors.neutral500
-                                      : AppColors.neutral500),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          DateFormat('MMM d, h:mm a').format(task.deadline),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color:
-                                isOverdue
-                                    ? Colors.red
-                                    : (isDark
-                                        ? AppColors.neutral500
-                                        : AppColors.neutral500),
-                            fontWeight: isOverdue ? FontWeight.bold : null,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  StatusType _getStatusType(TaskStatus status, bool isOverdue) {
-    if (isOverdue) return StatusType.overdue;
-    switch (status) {
-      case TaskStatus.ongoing:
-        return StatusType.ongoing;
-      case TaskStatus.completed:
-        return StatusType.completed;
-      case TaskStatus.cancelled:
-        return StatusType.cancelled;
-    }
   }
 }

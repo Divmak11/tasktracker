@@ -29,6 +29,10 @@ class EnvConfig {
   static bool get isDevelopment => environment == 'development';
   static bool get isProduction => environment == 'production';
 
+  /// Get Google Web Client ID for Calendar integration (Server Auth Code flow)
+  static String get googleWebClientId =>
+      dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '';
+
   /// Validate that all required environment variables are present
   static void validate() {
     final requiredVars = ['SUPER_ADMIN_EMAILS'];

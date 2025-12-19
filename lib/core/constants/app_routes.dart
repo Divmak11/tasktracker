@@ -3,12 +3,13 @@ class AppRoutes {
   // Auth
   static const String login = '/login';
   static const String signup = '/signup';
+  static const String enterName = '/enter-name';
   static const String requestPending = '/request-pending';
   static const String accessRevoked = '/access-revoked';
   static const String onboarding = '/onboarding';
 
   // Home & Tasks
-  static const String home = '/';
+  static const String home = '/home';
   static const String taskDetail = '/task/:id';
   static const String createTask = '/task/create';
   static const String editTask = '/task/:id/edit';

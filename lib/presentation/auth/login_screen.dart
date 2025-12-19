@@ -1,6 +1,10 @@
 import 'dart:io';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/constants/app_routes.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/theme/app_theme.dart';
@@ -21,7 +25,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final size = MediaQuery.of(context).size;
 
     return Scaffold(
       body: Container(
@@ -31,15 +34,16 @@ class _LoginScreenState extends State<LoginScreen> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    AppColors.neutral900,
-                    theme.colorScheme.primary.withValues(alpha: 0.2),
-                  ]
-                : [
-                    theme.colorScheme.primary.withValues(alpha: 0.05),
-                    Colors.white,
-                  ],
+            colors:
+                isDark
+                    ? [
+                      AppColors.neutral900,
+                      theme.colorScheme.primary.withValues(alpha: 0.2),
+                    ]
+                    : [
+                      theme.colorScheme.primary.withValues(alpha: 0.05),
+                      Colors.white,
+                    ],
           ),
         ),
         child: SafeArea(
@@ -60,7 +64,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.3,
+                          ),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -88,7 +94,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     'Organize. Delegate. Complete.',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      color:
+                          isDark ? AppColors.neutral400 : AppColors.neutral600,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -100,18 +107,21 @@ class _LoginScreenState extends State<LoginScreen> {
                     icon: Icons.group_outlined,
                     text: 'Team collaboration',
                     theme: theme,
+                    isDark: isDark,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _buildFeatureRow(
                     icon: Icons.calendar_today_outlined,
                     text: 'Google Calendar sync',
                     theme: theme,
+                    isDark: isDark,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _buildFeatureRow(
                     icon: Icons.notifications_outlined,
                     text: 'Smart reminders',
                     theme: theme,
+                    isDark: isDark,
                   ),
 
                   const SizedBox(height: AppSpacing.xxl * 2),
@@ -141,13 +151,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: AppSpacing.xxl),
 
                   // Terms
-                  Text(
-                    'By continuing, you agree to our Terms of Service\nand Privacy Policy.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                  _buildTermsAndPolicy(theme),
 
                   const SizedBox(height: AppSpacing.xxl),
                 ],
@@ -163,24 +167,78 @@ class _LoginScreenState extends State<LoginScreen> {
     required IconData icon,
     required String text,
     required ThemeData theme,
+    required bool isDark,
   }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          size: 20,
-          color: theme.colorScheme.primary,
+        // Fixed width container for icon to ensure column alignment
+        SizedBox(
+          width: 24,
+          child: Icon(icon, size: 20, color: theme.colorScheme.primary),
         ),
         const SizedBox(width: AppSpacing.sm),
-        Text(
-          text,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+        SizedBox(
+          width: 160, // Fixed width for text to ensure alignment
+          child: Text(
+            text,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: isDark ? AppColors.neutral300 : AppColors.neutral700,
+            ),
           ),
         ),
       ],
     );
+  }
+
+  Widget _buildTermsAndPolicy(ThemeData theme) {
+    return RichText(
+      textAlign: TextAlign.center,
+      text: TextSpan(
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.outline,
+        ),
+        children: [
+          const TextSpan(text: 'By continuing, you agree to our '),
+          TextSpan(
+            text: 'Terms of Service',
+            style: TextStyle(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+            recognizer:
+                TapGestureRecognizer()
+                  ..onTap =
+                      () => _launchUrl(
+                        'https://todoplannerapp.com/terms',
+                      ),
+          ),
+          const TextSpan(text: '\nand '),
+          TextSpan(
+            text: 'Privacy Policy',
+            style: TextStyle(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+            recognizer:
+                TapGestureRecognizer()
+                  ..onTap =
+                      () => _launchUrl(
+                        'https://todoplannerapp.com/privacy',
+                      ),
+          ),
+          const TextSpan(text: '.'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchUrl(String urlString) async {
+    final url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      debugPrint('Could not launch $urlString');
+    }
   }
 
   Future<void> _handleGoogleSignIn() async {
@@ -191,13 +249,16 @@ class _LoginScreenState extends State<LoginScreen> {
       // Navigation is handled automatically by auth state listener in AppRouter
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign-in failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -210,13 +271,16 @@ class _LoginScreenState extends State<LoginScreen> {
       // Navigation is handled automatically by auth state listener in AppRouter
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Sign-in failed: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }

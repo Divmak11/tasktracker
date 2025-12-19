@@ -205,7 +205,7 @@ class TeamDetailScreen extends StatelessWidget {
                                   ),
                               ],
                             ),
-                            subtitle: Text(member.email),
+                            subtitle: Text(_getRoleDisplayName(member.role)),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: AppSpacing.md,
                               vertical: AppSpacing.xs,
@@ -222,5 +222,16 @@ class TeamDetailScreen extends StatelessWidget {
         },
       ),
     );
+  }
+
+  String _getRoleDisplayName(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'Super Admin';
+      case UserRole.teamAdmin:
+        return 'Team Admin';
+      case UserRole.member:
+        return 'Member';
+    }
   }
 }

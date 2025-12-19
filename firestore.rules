@@ -79,6 +79,15 @@ service cloud.firestore {
       // Only creator or super admin can delete tasks
       allow delete: if isSuperAdmin() || 
                        (isAuthenticated() && resource.data.createdBy == request.auth.uid);
+      
+      // Assignments subcollection for multi-assignee tasks
+      match /assignments/{assignmentId} {
+        // Active users can read assignments
+        allow read: if isActiveUser() || isTeamAdmin();
+        
+        // Only Cloud Functions handle assignment writes
+        allow write: if false;
+      }
     }
 
     // Remarks collection

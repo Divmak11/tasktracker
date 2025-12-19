@@ -1,4 +1,17 @@
+import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
+
+/// Custom exception for cloud function timeout
+class CloudFunctionTimeoutException implements Exception {
+  final String functionName;
+  final Duration timeout;
+
+  CloudFunctionTimeoutException(this.functionName, this.timeout);
+
+  @override
+  String toString() =>
+      'Request timed out after ${timeout.inSeconds}s. Please check your connection and try again.';
+}
 
 /// Service to interact with Firebase Cloud Functions
 /// Handles all backend API calls for write operations
@@ -8,10 +21,37 @@ class CloudFunctionsService {
   factory CloudFunctionsService() => _instance;
   CloudFunctionsService._internal();
 
+  // Default timeout for cloud function calls
+  static const Duration _defaultTimeout = Duration(seconds: 30);
+
   // Use asia-south1 region for all Cloud Functions
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
     region: 'asia-south1',
   );
+
+  /// Wrapper to call cloud functions with timeout
+  Future<T> _callWithTimeout<T>(
+    Future<T> Function() call,
+    String functionName, {
+    Duration? timeout,
+  }) async {
+    try {
+      return await call().timeout(
+        timeout ?? _defaultTimeout,
+        onTimeout: () {
+          throw CloudFunctionTimeoutException(
+            functionName,
+            timeout ?? _defaultTimeout,
+          );
+        },
+      );
+    } on TimeoutException {
+      throw CloudFunctionTimeoutException(
+        functionName,
+        timeout ?? _defaultTimeout,
+      );
+    }
+  }
 
   // ============================================
   // USER MANAGEMENT
@@ -60,6 +100,8 @@ class CloudFunctionsService {
     final result = await callable.call({'userId': userId});
     return Map<String, dynamic>.from(result.data);
   }
+
+
 
   /// Permanently delete a user and cleanup related data (Super Admin only)
   Future<Map<String, dynamic>> deleteUser(String userId) async {
@@ -116,23 +158,30 @@ class CloudFunctionsService {
   // TASK MANAGEMENT
   // ============================================
 
-  /// Assign a new task to a member or team
+  /// Assign a new task to a member, multiple members, or team
+  /// [assignedTo] can be a single ID (String) or list of IDs (List<String>)
+  /// [supervisorIds] optional list of user IDs who can see all assignees' status
   Future<Map<String, dynamic>> assignTask({
     required String title,
     required String subtitle,
     required String assignedType,
-    required String assignedTo,
+    required dynamic assignedTo, // String or List<String>
     required DateTime deadline,
+    List<String>? supervisorIds,
   }) async {
-    final callable = _functions.httpsCallable('assignTask');
-    final result = await callable.call({
-      'title': title,
-      'subtitle': subtitle,
-      'assignedType': assignedType,
-      'assignedTo': assignedTo,
-      'deadline': deadline.toUtc().toIso8601String(),
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('assignTask');
+      final result = await callable.call({
+        'title': title,
+        'subtitle': subtitle,
+        'assignedType': assignedType,
+        'assignedTo': assignedTo,
+        'deadline': deadline.toUtc().toIso8601String(),
+        if (supervisorIds != null && supervisorIds.isNotEmpty)
+          'supervisorIds': supervisorIds,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'assignTask');
   }
 
   /// Update a task (title, subtitle, deadline)
@@ -142,29 +191,50 @@ class CloudFunctionsService {
     String? subtitle,
     DateTime? deadline,
   }) async {
-    final callable = _functions.httpsCallable('updateTask');
-    final result = await callable.call({
-      'taskId': taskId,
-      'updates': {
-        if (title != null) 'title': title,
-        if (subtitle != null) 'subtitle': subtitle,
-        if (deadline != null) 'deadline': deadline.toIso8601String(),
-      },
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('updateTask');
+      final result = await callable.call({
+        'taskId': taskId,
+        'updates': {
+          if (title != null) 'title': title,
+          if (subtitle != null) 'subtitle': subtitle,
+          if (deadline != null) 'deadline': deadline.toIso8601String(),
+        },
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'updateTask');
   }
 
   /// Mark a task as completed (Assignee only)
+  /// Works for both single-assignee and multi-assignee tasks
   Future<Map<String, dynamic>> completeTask(
     String taskId, {
     String? remark,
   }) async {
-    final callable = _functions.httpsCallable('completeTask');
-    final result = await callable.call({
-      'taskId': taskId,
-      if (remark != null) 'remark': remark,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('completeTask');
+      final result = await callable.call({
+        'taskId': taskId,
+        if (remark != null) 'remark': remark,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'completeTask');
+  }
+
+  /// Complete an assignment for multi-assignee tasks
+  /// Each assignee can complete their own assignment independently
+  Future<Map<String, dynamic>> completeAssignment(
+    String taskId, {
+    String? remark,
+  }) async {
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('completeAssignment');
+      final result = await callable.call({
+        'taskId': taskId,
+        if (remark != null) 'remark': remark,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'completeAssignment');
   }
 
   /// Cancel a task (Creator or Super Admin)
@@ -197,13 +267,15 @@ class CloudFunctionsService {
     required DateTime newDeadline,
     String? reason,
   }) async {
-    final callable = _functions.httpsCallable('requestReschedule');
-    final result = await callable.call({
-      'taskId': taskId,
-      'newDeadline': newDeadline.toUtc().toIso8601String(),
-      if (reason != null) 'reason': reason,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('requestReschedule');
+      final result = await callable.call({
+        'taskId': taskId,
+        'newDeadline': newDeadline.toUtc().toIso8601String(),
+        if (reason != null) 'reason': reason,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'requestReschedule');
   }
 
   /// Approve or reject a reschedule request (Task creator only)
@@ -317,6 +389,17 @@ class CloudFunctionsService {
   }
 
   // ============================================
+  // ACCOUNT MANAGEMENT
+  // ============================================
+
+  /// Delete own account and all associated data (Play Store compliance)
+  Future<Map<String, dynamic>> deleteOwnAccount() async {
+    final callable = _functions.httpsCallable('deleteOwnAccount');
+    final result = await callable.call();
+    return Map<String, dynamic>.from(result.data);
+  }
+
+  // ============================================
   // REPORT EXPORT
   // ============================================
 
@@ -334,6 +417,21 @@ class CloudFunctionsService {
       if (teamId != null) 'teamId': teamId,
       if (status != null) 'status': status,
     });
+    return Map<String, dynamic>.from(result.data);
+  }
+
+  // ============================================
+  // CALENDAR FUNCTIONS
+  // ============================================
+
+  /// Exchange Google OAuth auth code for access and refresh tokens.
+  ///
+  /// This is called after GoogleSignIn returns a serverAuthCode.
+  /// The backend exchanges this code for a REAL refresh_token that allows
+  /// automatic token refresh without user interaction.
+  Future<Map<String, dynamic>> exchangeCalendarAuthCode(String authCode) async {
+    final callable = _functions.httpsCallable('exchangeCalendarAuthCode');
+    final result = await callable.call({'authCode': authCode});
     return Map<String, dynamic>.from(result.data);
   }
 }

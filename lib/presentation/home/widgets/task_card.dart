@@ -10,8 +10,9 @@ import '../../common/cards/app_card.dart';
 class TaskCard extends StatelessWidget {
   final TaskModel task;
   final UserModel? creator;
+  final UserModel? assignee;
 
-  const TaskCard({super.key, required this.task, this.creator});
+  const TaskCard({super.key, required this.task, this.creator, this.assignee});
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +69,7 @@ class TaskCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
             ],
 
-            // Deadline and Creator
+            // Deadline
             Row(
               children: [
                 Icon(
@@ -82,7 +83,7 @@ class TaskCard extends StatelessWidget {
                               : AppColors.neutral600),
                 ),
                 const SizedBox(width: AppSpacing.xs),
-                Flexible(
+                Expanded(
                   child: Text(
                     _formatDeadline(task.deadline),
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -98,36 +99,76 @@ class TaskCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (creator != null) ...[
-                  const SizedBox(width: AppSpacing.sm),
-                  CircleAvatar(
-                    radius: 12,
-                    backgroundColor: theme.colorScheme.primaryContainer,
-                    child: Text(
-                      creator!.name.isNotEmpty ? creator!.name[0] : '?',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: theme.colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Flexible(
-                    child: Text(
-                      creator!.name,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color:
-                            isDark
-                                ? AppColors.neutral400
-                                : AppColors.neutral600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                ],
               ],
             ),
+
+            // Creator and Assignee Row
+            if (creator != null || assignee != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Row(
+                children: [
+                  // Created by
+                  if (creator != null) ...[
+                    Icon(
+                      Icons.edit_outlined,
+                      size: 14,
+                      color:
+                          isDark ? AppColors.neutral500 : AppColors.neutral500,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        creator!.name,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color:
+                              isDark
+                                  ? AppColors.neutral400
+                                  : AppColors.neutral600,
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                  // Separator
+                  if (creator != null && assignee != null) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    Icon(
+                      Icons.arrow_forward,
+                      size: 12,
+                      color:
+                          isDark ? AppColors.neutral600 : AppColors.neutral400,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                  ],
+                  // Assigned to
+                  if (assignee != null) ...[
+                    Icon(
+                      Icons.person_outline,
+                      size: 14,
+                      color:
+                          isDark ? AppColors.neutral500 : AppColors.neutral500,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        assignee!.name,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color:
+                              isDark
+                                  ? AppColors.neutral400
+                                  : AppColors.neutral600,
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
         ),
       ),

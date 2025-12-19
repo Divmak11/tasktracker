@@ -29,6 +29,9 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
   bool _isSending = false;
   String _filterStatus = 'all';
 
+  // Track which invites are currently being processed (for per-item loading)
+  final Set<String> _processingInviteIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -83,10 +86,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
 
     try {
       // Wait for the network call to complete
-      await _cloudFunctions.sendInvite(
-        email: email,
-        teamId: teamId,
-      );
+      await _cloudFunctions.sendInvite(email: email, teamId: teamId);
 
       // Only show success after network call succeeds
       if (mounted) {
@@ -95,14 +95,14 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
           _selectedTeamId = null;
           _isSending = false;
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Invite sent successfully!'),
             backgroundColor: Colors.green,
           ),
         );
-        
+
         _loadData();
       }
     } catch (error) {
@@ -121,22 +121,26 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
   }
 
   Future<void> _resendInvite(InviteModel invite) async {
+    // Show loading state on this specific invite
+    setState(() => _processingInviteIds.add(invite.id));
+
     try {
-      // Wait for the network call to complete
       await _cloudFunctions.resendInvite(invite.id);
 
-      // Only show success after network call succeeds
       if (mounted) {
+        setState(() => _processingInviteIds.remove(invite.id));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Invite resent successfully!'),
             backgroundColor: Colors.green,
           ),
         );
+        // Reload to get updated expiration date
         _loadData();
       }
     } catch (error) {
       if (mounted) {
+        setState(() => _processingInviteIds.remove(invite.id));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to resend invite: $error'),
@@ -171,19 +175,28 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
 
     if (confirmed != true) return;
 
+    // Show loading state on this specific invite
+    setState(() => _processingInviteIds.add(invite.id));
+
     try {
-      // Wait for the network call to complete
       await _cloudFunctions.cancelInvite(invite.id);
 
-      // Only show success after network call succeeds
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invite cancelled')),
-        );
-        _loadData();
+        // Update only this invite in the list (optimistic update)
+        setState(() {
+          _processingInviteIds.remove(invite.id);
+          final index = _invites.indexWhere((i) => i.id == invite.id);
+          if (index != -1) {
+            _invites[index] = invite.copyWith(status: InviteStatus.cancelled);
+          }
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Invite cancelled')));
       }
     } catch (error) {
       if (mounted) {
+        setState(() => _processingInviteIds.remove(invite.id));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to cancel invite: $error'),
@@ -230,7 +243,9 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                color: theme.colorScheme.primaryContainer.withValues(
+                  alpha: 0.3,
+                ),
                 borderRadius: BorderRadius.circular(AppRadius.medium),
                 border: Border.all(
                   color: theme.colorScheme.primary.withValues(alpha: 0.2),
@@ -431,7 +446,13 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
   }
 
   Widget _buildInviteCard(InviteModel invite, ThemeData theme) {
-    final statusColor = _getStatusColor(invite.status);
+    final isProcessing = _processingInviteIds.contains(invite.id);
+    // Check if invite is expired but still marked as pending (frontend check)
+    final isActuallyExpired =
+        invite.status == InviteStatus.pending && invite.isExpired;
+    final displayStatus =
+        isActuallyExpired ? InviteStatus.expired : invite.status;
+    final statusColor = _getStatusColor(displayStatus);
     final teamName =
         invite.teamId != null
             ? _teams
@@ -501,7 +522,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
                     borderRadius: BorderRadius.circular(AppRadius.small),
                   ),
                   child: Text(
-                    invite.status.displayName,
+                    displayStatus.displayName,
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: statusColor,
                       fontWeight: FontWeight.w600,
@@ -540,26 +561,41 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
                 ],
               ],
             ),
-            if (invite.canResend || invite.canCancel) ...[
+            // Show actions only for pending non-expired invites
+            if ((invite.canResend || invite.canCancel) &&
+                !isActuallyExpired) ...[
               const SizedBox(height: AppSpacing.md),
               const Divider(height: 1),
               const SizedBox(height: AppSpacing.sm),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (invite.canResend)
-                    TextButton.icon(
-                      onPressed: () => _resendInvite(invite),
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('Resend'),
-                    ),
-                  if (invite.canCancel)
-                    TextButton.icon(
-                      onPressed: () => _cancelInvite(invite),
-                      icon: const Icon(Icons.close, size: 18),
-                      label: const Text('Cancel'),
-                      style: TextButton.styleFrom(foregroundColor: Colors.red),
-                    ),
+                  if (isProcessing)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else ...[
+                    if (invite.canResend)
+                      TextButton.icon(
+                        onPressed: () => _resendInvite(invite),
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Resend'),
+                      ),
+                    if (invite.canCancel)
+                      TextButton.icon(
+                        onPressed: () => _cancelInvite(invite),
+                        icon: const Icon(Icons.close, size: 18),
+                        label: const Text('Cancel'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ],

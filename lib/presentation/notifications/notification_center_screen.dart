@@ -9,14 +9,21 @@ import '../../data/providers/auth_provider.dart';
 import '../../data/repositories/notification_repository.dart';
 import '../common/cards/app_card.dart';
 
-class NotificationCenterScreen extends StatelessWidget {
+class NotificationCenterScreen extends StatefulWidget {
   const NotificationCenterScreen({super.key});
 
   @override
+  State<NotificationCenterScreen> createState() =>
+      _NotificationCenterScreenState();
+}
+
+class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
+  final NotificationRepository _notificationRepository =
+      NotificationRepository();
+
+  @override
   Widget build(BuildContext context) {
-    final authProvider = context.watch<AuthProvider>();
-    final currentUser = authProvider.currentUser;
-    final notificationRepository = NotificationRepository();
+    final currentUser = context.read<AuthProvider>().currentUser;
 
     if (currentUser == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -28,43 +35,7 @@ class NotificationCenterScreen extends StatelessWidget {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
-            onSelected: (value) async {
-              if (value == 'mark_all_read') {
-                await notificationRepository.markAllAsRead(currentUser.id);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('All marked as read')),
-                  );
-                }
-              } else if (value == 'clear_all') {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder:
-                      (context) => AlertDialog(
-                        title: const Text('Clear All'),
-                        content: const Text('Delete all notifications?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.red,
-                            ),
-                            child: const Text('Clear'),
-                          ),
-                        ],
-                      ),
-                );
-                if (confirm == true) {
-                  await notificationRepository.clearAllNotifications(
-                    currentUser.id,
-                  );
-                }
-              }
-            },
+            onSelected: (value) => _handleMenuAction(value, currentUser.id),
             itemBuilder:
                 (context) => [
                   const PopupMenuItem(
@@ -80,7 +51,7 @@ class NotificationCenterScreen extends StatelessWidget {
         ],
       ),
       body: StreamBuilder<List<NotificationModel>>(
-        stream: notificationRepository.getUserNotificationsStream(
+        stream: _notificationRepository.getUserNotificationsStream(
           currentUser.id,
         ),
         builder: (context, snapshot) {
@@ -115,14 +86,9 @@ class NotificationCenterScreen extends StatelessWidget {
               final notification = notifications[index];
               return _NotificationCard(
                 notification: notification,
-                onTap:
-                    () => _handleNotificationTap(
-                      context,
-                      notification,
-                      notificationRepository,
-                    ),
+                onTap: () => _handleNotificationTap(notification),
                 onDismiss:
-                    () => notificationRepository.deleteNotification(
+                    () => _notificationRepository.deleteNotification(
                       notification.id,
                     ),
               );
@@ -131,6 +97,52 @@ class NotificationCenterScreen extends StatelessWidget {
         },
       ),
     );
+  }
+
+  void _handleMenuAction(String value, String userId) async {
+    if (value == 'mark_all_read') {
+      _notificationRepository.markAllAsRead(userId);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('All marked as read')));
+      }
+    } else if (value == 'clear_all') {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder:
+            (ctx) => AlertDialog(
+              title: const Text('Clear All'),
+              content: const Text('Delete all notifications?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Clear'),
+                ),
+              ],
+            ),
+      );
+      if (confirm == true) {
+        _notificationRepository.clearAllNotifications(userId);
+      }
+    }
+  }
+
+  void _handleNotificationTap(NotificationModel notification) {
+    // Navigate immediately - don't block on markAsRead
+    if (notification.taskId != null) {
+      context.push('/task/${notification.taskId}');
+    }
+
+    // Mark as read in background (fire-and-forget)
+    if (!notification.isRead) {
+      _notificationRepository.markAsRead(notification.id);
+    }
   }
 
   Widget _buildEmptyState(BuildContext context) {
@@ -163,22 +175,6 @@ class NotificationCenterScreen extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  void _handleNotificationTap(
-    BuildContext context,
-    NotificationModel notification,
-    NotificationRepository repository,
-  ) async {
-    // Mark as read
-    if (!notification.isRead) {
-      await repository.markAsRead(notification.id);
-    }
-
-    // Navigate based on type
-    if (notification.taskId != null && context.mounted) {
-      context.push('/task/${notification.taskId}');
-    }
   }
 }
 
@@ -309,6 +305,8 @@ class _NotificationCard extends StatelessWidget {
     switch (type) {
       case NotificationType.taskAssigned:
         return Icons.assignment;
+      case NotificationType.taskUpdated:
+        return Icons.edit;
       case NotificationType.taskCompleted:
         return Icons.check_circle;
       case NotificationType.taskCancelled:
@@ -334,6 +332,8 @@ class _NotificationCard extends StatelessWidget {
     switch (type) {
       case NotificationType.taskAssigned:
         return Colors.blue;
+      case NotificationType.taskUpdated:
+        return Colors.indigo;
       case NotificationType.taskCompleted:
         return Colors.green;
       case NotificationType.taskCancelled:

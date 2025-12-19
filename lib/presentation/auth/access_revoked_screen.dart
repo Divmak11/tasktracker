@@ -84,10 +84,7 @@ class AccessRevokedScreen extends StatelessWidget {
                       child: Text(
                         'Please contact the Super Admin to request access restoration.',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color:
-                              isDark
-                                  ? AppColors.neutral300
-                                  : AppColors.neutral700,
+                          color: isDark ? AppColors.neutral300 : AppColors.neutral700,
                         ),
                       ),
                     ),

@@ -8,6 +8,7 @@ import '../../data/providers/auth_provider.dart';
 import '../../data/providers/theme_provider.dart';
 import '../../data/models/user_model.dart';
 import '../../data/services/calendar_service.dart';
+import '../../data/services/cloud_functions_service.dart';
 import '../common/cards/app_card.dart';
 import '../common/buttons/app_button.dart';
 
@@ -20,8 +21,142 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final CalendarService _calendarService = CalendarService();
+  final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
   bool _isCalendarLoading = false;
+  bool _isDeletingAccount = false;
 
+  Future<void> _deleteAccount() async {
+    final authProvider = context.read<AuthProvider>();
+    final user = authProvider.currentUser;
+
+    if (user?.role == UserRole.superAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Super Admin accounts cannot be self-deleted'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Delete Account'),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Are you sure you want to delete your account?',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 12),
+                Text('This action will:'),
+                SizedBox(height: 8),
+                Text('• Delete all your personal data'),
+                Text('• Cancel all your ongoing tasks'),
+                Text('• Remove you from all teams'),
+                Text('• Delete your remarks and notifications'),
+                SizedBox(height: 12),
+                Text(
+                  'This action cannot be undone.',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Delete Account'),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Second confirmation with typing
+    final secondConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('Final Confirmation'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Type "DELETE" to confirm account deletion:'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  hintText: 'Type DELETE',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (controller.text.trim().toUpperCase() == 'DELETE') {
+                  Navigator.pop(ctx, true);
+                } else {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please type DELETE to confirm'),
+                    ),
+                  );
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Delete Forever'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (secondConfirmed != true || !mounted) return;
+
+    setState(() => _isDeletingAccount = true);
+
+    try {
+      await _cloudFunctions.deleteOwnAccount();
+    } catch (e) {
+      // Log error but continue to logout - account data is already deleted on server
+      debugPrint('❌ deleteOwnAccount error (will still logout): $e');
+    }
+
+    // ALWAYS logout after deletion attempt - account is deleted server-side
+    if (mounted) {
+      try {
+        await authProvider.logout();
+      } catch (e) {
+        debugPrint('❌ Logout error (will still navigate): $e');
+      }
+      if (mounted) {
+        context.go(AppRoutes.login);
+      }
+    }
+
+    if (mounted) setState(() => _isDeletingAccount = false);
+  }
 
   Future<void> _toggleCalendarConnection(
     String userId,
@@ -227,6 +362,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       )
                                       : null,
                             ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xxl),
+
+            // Account Section
+            Text(
+              'Account',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            AppCard(
+              type: AppCardType.standard,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_forever_outlined,
+                      color: Colors.red.shade400,
+                    ),
+                    title: const Text('Delete Account'),
+                    subtitle: const Text(
+                      'Permanently delete your account and data',
+                    ),
+                    trailing:
+                        _isDeletingAccount
+                            ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : Icon(
+                              Icons.chevron_right,
+                              color: Colors.red.shade400,
+                            ),
+                    onTap: _isDeletingAccount ? null : _deleteAccount,
                   ),
                 ],
               ),

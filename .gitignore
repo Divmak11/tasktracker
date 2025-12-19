@@ -54,3 +54,7 @@ google-services.json
 GoogleService-Info.plist
 firebase_options.dart
 
+# Signing Config
+key.properties
+**/*.jks
+**/*.keystore

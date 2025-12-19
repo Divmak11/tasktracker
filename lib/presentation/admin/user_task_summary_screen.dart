@@ -29,7 +29,7 @@ class _UserTaskSummaryScreenState extends State<UserTaskSummaryScreen> {
   void initState() {
     super.initState();
     _userStream = _userRepository.getUserStream(widget.userId);
-    _tasksStream = _taskRepository.getUserTasksStream(widget.userId);
+    _tasksStream = _taskRepository.getUserAssignedTasksStream(widget.userId);
   }
 
   @override
@@ -403,6 +403,17 @@ class _UserTaskSummaryScreenState extends State<UserTaskSummaryScreen> {
         return StatusType.completed;
       case TaskStatus.cancelled:
         return StatusType.cancelled;
+    }
+  }
+
+  String _getRoleDisplayName(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'Super Admin';
+      case UserRole.teamAdmin:
+        return 'Team Admin';
+      case UserRole.member:
+        return 'Member';
     }
   }
 }

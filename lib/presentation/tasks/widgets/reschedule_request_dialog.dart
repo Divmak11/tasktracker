@@ -107,31 +107,44 @@ class _RescheduleRequestDialogState extends State<RescheduleRequestDialog> {
       return;
     }
 
-    // Capture values before popping
+    setState(() => _isSubmitting = true);
+
     final newDeadline = _newDeadline;
-    final reason = _reasonController.text.trim().isEmpty
-        ? null
-        : _reasonController.text.trim();
+    final reason =
+        _reasonController.text.trim().isEmpty
+            ? null
+            : _reasonController.text.trim();
     final taskId = widget.task.id;
 
-    // OPTIMISTIC UPDATE: Close dialog and show success immediately
-    Navigator.of(context).pop(true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Reschedule request submitted'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    try {
+      await _cloudFunctions.requestReschedule(
+        taskId: taskId,
+        newDeadline: newDeadline,
+        reason: reason,
+      );
 
-    // Fire cloud function in background
-    _cloudFunctions.requestReschedule(
-      taskId: taskId,
-      newDeadline: newDeadline,
-      reason: reason,
-    ).catchError((error) {
+      if (mounted) {
+        Navigator.of(context).pop(true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reschedule request submitted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (error) {
       debugPrint('Failed to submit reschedule request: $error');
-      return <String, dynamic>{};
-    });
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit request: $error'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   @override
