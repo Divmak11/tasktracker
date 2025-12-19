@@ -8,11 +8,12 @@ class AuthRepository {
   AuthRepository({
     firebase_auth.FirebaseAuth? firebaseAuth,
     GoogleSignIn? googleSignIn,
-  })  : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance,
-        _googleSignIn = googleSignIn ?? GoogleSignIn();
+  }) : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance,
+       _googleSignIn = googleSignIn ?? GoogleSignIn();
 
   /// Stream of Firebase auth state changes
-  Stream<firebase_auth.User?> get authStateChanges => _firebaseAuth.authStateChanges();
+  Stream<firebase_auth.User?> get authStateChanges =>
+      _firebaseAuth.authStateChanges();
 
   /// Get current Firebase user
   firebase_auth.User? get currentFirebaseUser => _firebaseAuth.currentUser;
@@ -28,7 +29,8 @@ class AuthRepository {
       }
 
       // Obtain auth details
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
 
       // Create credential
       final credential = firebase_auth.GoogleAuthProvider.credential(
@@ -56,6 +58,29 @@ class AuthRepository {
     }
   }
 
+  Future<firebase_auth.UserCredential?> signInWithGoogleSilently() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn
+          .signInSilently(suppressErrors: true);
+
+      if (googleUser == null) {
+        return null;
+      }
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final credential = firebase_auth.GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      return await _firebaseAuth.signInWithCredential(credential);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Sign out from Google Sign-In only (keeps Firebase session)
   /// Used to force account picker on next Google Sign-In attempt
   Future<void> signOutGoogleOnly() async {
@@ -64,10 +89,7 @@ class AuthRepository {
 
   /// Sign out
   Future<void> signOut() async {
-    await Future.wait([
-      _firebaseAuth.signOut(),
-      _googleSignIn.signOut(),
-    ]);
+    await Future.wait([_firebaseAuth.signOut(), _googleSignIn.signOut()]);
   }
 
   /// Delete current user account

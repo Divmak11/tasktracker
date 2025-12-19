@@ -3,7 +3,20 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/constants/env_config.dart';
 import 'cloud_functions_service.dart';
+
+/// Result of calendar token refresh operation
+enum CalendarRefreshResult {
+  /// Token refresh succeeded
+  success,
+
+  /// Token refresh failed after retries (network/server error)
+  failed,
+
+  /// User needs to reconnect calendar (silent sign-in failed)
+  reconnectNeeded,
+}
 
 /// Google Calendar integration service
 ///
@@ -20,17 +33,21 @@ class CalendarService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
 
-  // Web Client ID from google-services.json (client_type: 3)
+  // Web Client ID from environment config (client_type: 3 from google-services.json)
   // This enables getting serverAuthCode for backend token exchange
-  static const String _webClientId =
-      '1062148887754-5gjiqtggvt2bltnrbj9ovg11sc71rc84.apps.googleusercontent.com';
+  String get _webClientId => EnvConfig.googleWebClientId;
 
   // Google Sign-In with Calendar scope and serverClientId for auth code flow
-  late final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ['email', calendar.CalendarApi.calendarEventsScope],
-    // serverClientId enables getting serverAuthCode for backend token exchange
-    serverClientId: _webClientId,
-  );
+  // Note: Late initialization to allow EnvConfig to load first
+  GoogleSignIn? _googleSignInInstance;
+  GoogleSignIn get _googleSignIn {
+    _googleSignInInstance ??= GoogleSignIn(
+      scopes: ['email', calendar.CalendarApi.calendarEventsScope],
+      // serverClientId enables getting serverAuthCode for backend token exchange
+      serverClientId: _webClientId,
+    );
+    return _googleSignInInstance!;
+  }
 
   GoogleSignInAccount? _currentAccount;
   calendar.CalendarApi? _calendarApi;
@@ -42,51 +59,79 @@ class CalendarService {
   ///
   /// This is a fallback for when the app is active. The backend handles
   /// automatic token refresh using the refresh_token obtained via serverAuthCode.
-  Future<bool> refreshAccessToken(String userId) async {
+  ///
+  /// Returns a [CalendarRefreshResult] indicating success, failure, or if
+  /// reconnection is needed (when silent sign-in fails).
+  Future<CalendarRefreshResult> refreshAccessToken(
+    String userId, {
+    int maxRetries = 2,
+  }) async {
     debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] Starting for user=$userId');
 
-    try {
-      // Attempt silent sign-in to reuse existing consent
-      _currentAccount = await _googleSignIn.signInSilently();
+    int attempt = 0;
+    Exception? lastError;
 
-      if (_currentAccount == null) {
+    while (attempt <= maxRetries) {
+      attempt++;
+      debugPrint(
+        '📅 [CALENDAR] [REFRESH_TOKEN] Attempt $attempt/${maxRetries + 1}',
+      );
+
+      try {
+        // Attempt silent sign-in to reuse existing consent
+        _currentAccount = await _googleSignIn.signInSilently();
+
+        if (_currentAccount == null) {
+          debugPrint(
+            '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in returned null',
+          );
+          // Silent sign-in failed - user needs to reconnect calendar
+          return CalendarRefreshResult.reconnectNeeded;
+        }
+
         debugPrint(
-          '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in returned null',
+          '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in SUCCESS '
+          'email=${_currentAccount!.email}',
         );
-        return false;
+
+        final auth = await _currentAccount!.authentication;
+        if (auth.accessToken == null) {
+          debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] No access token available');
+          return CalendarRefreshResult.reconnectNeeded;
+        }
+
+        debugPrint(
+          '📅 [CALENDAR] [REFRESH_TOKEN] Got new access token '
+          '(preview=${auth.accessToken!.substring(0, 20)}...)',
+        );
+
+        // Update only the access token - backend manages refresh token
+        await _firestore.collection('users').doc(userId).update({
+          'googleCalendarConnected': true,
+          'googleAccessToken': auth.accessToken,
+        });
+
+        debugPrint(
+          '✅ [CALENDAR] [REFRESH_TOKEN] SUCCESS - Saved to Firestore for '
+          'user=$userId',
+        );
+        return CalendarRefreshResult.success;
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        debugPrint('❌ [CALENDAR] [REFRESH_TOKEN] Attempt $attempt FAILED: $e');
+
+        // Wait before retry (exponential backoff)
+        if (attempt <= maxRetries) {
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        }
       }
-
-      debugPrint(
-        '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in SUCCESS '
-        'email=${_currentAccount!.email}',
-      );
-
-      final auth = await _currentAccount!.authentication;
-      if (auth.accessToken == null) {
-        debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] No access token available');
-        return false;
-      }
-
-      debugPrint(
-        '📅 [CALENDAR] [REFRESH_TOKEN] Got new access token '
-        '(preview=${auth.accessToken!.substring(0, 20)}...)',
-      );
-
-      // Update only the access token - backend manages refresh token
-      await _firestore.collection('users').doc(userId).update({
-        'googleCalendarConnected': true,
-        'googleAccessToken': auth.accessToken,
-      });
-
-      debugPrint(
-        '✅ [CALENDAR] [REFRESH_TOKEN] SUCCESS - Saved to Firestore for '
-        'user=$userId',
-      );
-      return true;
-    } catch (e) {
-      debugPrint('❌ [CALENDAR] [REFRESH_TOKEN] FAILED: $e');
-      return false;
     }
+
+    debugPrint(
+      '❌ [CALENDAR] [REFRESH_TOKEN] All $attempt attempts failed. '
+      'Last error: $lastError',
+    );
+    return CalendarRefreshResult.failed;
   }
 
   /// Connect to Google Calendar using Server Auth Code flow
