@@ -80,7 +80,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen> {
         ],
       ),
       body: StreamBuilder<List<TaskModel>>(
-        stream: _taskRepository.getUserTasksStream(currentUser.id),
+        stream: _taskRepository.getUserAssignedTasksStream(currentUser.id),
         builder: (context, snapshot) {
           if (snapshot.hasData) {
             // Update tasks by date when data changes

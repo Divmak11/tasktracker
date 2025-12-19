@@ -305,6 +305,8 @@ class _NotificationCard extends StatelessWidget {
     switch (type) {
       case NotificationType.taskAssigned:
         return Icons.assignment;
+      case NotificationType.taskUpdated:
+        return Icons.edit;
       case NotificationType.taskCompleted:
         return Icons.check_circle;
       case NotificationType.taskCancelled:
@@ -330,6 +332,8 @@ class _NotificationCard extends StatelessWidget {
     switch (type) {
       case NotificationType.taskAssigned:
         return Colors.blue;
+      case NotificationType.taskUpdated:
+        return Colors.indigo;
       case NotificationType.taskCompleted:
         return Colors.green;
       case NotificationType.taskCancelled:
