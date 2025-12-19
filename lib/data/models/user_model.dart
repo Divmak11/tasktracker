@@ -61,6 +61,7 @@ class UserModel {
   final String? fcmToken;
   final String? avatarUrl;
   final Map<String, bool>? notificationPreferences;
+  final bool needsOnboarding;
   final DateTime? createdAt;
   final DateTime? lastActive;
 
@@ -77,6 +78,7 @@ class UserModel {
     this.fcmToken,
     this.avatarUrl,
     this.notificationPreferences,
+    this.needsOnboarding = true,
     this.createdAt,
     this.lastActive,
   });
@@ -98,6 +100,7 @@ class UserModel {
           json['notificationPreferences'] != null
               ? Map<String, bool>.from(json['notificationPreferences'])
               : null,
+      needsOnboarding: json['needsOnboarding'] as bool? ?? false,
       createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
       lastActive: (json['lastActive'] as Timestamp?)?.toDate(),
     );
@@ -117,6 +120,7 @@ class UserModel {
       if (avatarUrl != null) 'avatarUrl': avatarUrl,
       if (notificationPreferences != null)
         'notificationPreferences': notificationPreferences,
+      'needsOnboarding': needsOnboarding,
       'createdAt':
           createdAt != null
               ? Timestamp.fromDate(createdAt!)
@@ -141,6 +145,7 @@ class UserModel {
     String? fcmToken,
     String? avatarUrl,
     Map<String, bool>? notificationPreferences,
+    bool? needsOnboarding,
     DateTime? createdAt,
     DateTime? lastActive,
   }) {
@@ -159,6 +164,7 @@ class UserModel {
       avatarUrl: avatarUrl ?? this.avatarUrl,
       notificationPreferences:
           notificationPreferences ?? this.notificationPreferences,
+      needsOnboarding: needsOnboarding ?? this.needsOnboarding,
       createdAt: createdAt ?? this.createdAt,
       lastActive: lastActive ?? this.lastActive,
     );
