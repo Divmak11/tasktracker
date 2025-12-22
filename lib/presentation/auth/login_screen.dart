@@ -131,7 +131,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     text: 'Continue with Google',
                     onPressed: _isLoading ? () {} : _handleGoogleSignIn,
                     type: AppButtonType.primary,
-                    icon: Icons.g_mobiledata_rounded,
+                    leadingWidget: Image.network(
+                      'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                      height: 20,
+                      width: 20,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.g_mobiledata_rounded,
+                          size: 20,
+                        );
+                      },
+                    ),
                     isLoading: _isLoading,
                     isFullWidth: true,
                   ),
@@ -148,12 +158,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       isFullWidth: true,
                     ),
 
-                  const SizedBox(height: AppSpacing.xxl),
+                  // Spacer to push terms to bottom
+                  const Spacer(),
 
                   // Terms
                   _buildTermsAndPolicy(theme),
 
-                  const SizedBox(height: AppSpacing.xxl),
+                  const SizedBox(height: AppSpacing.lg),
                 ],
               ),
             ),
