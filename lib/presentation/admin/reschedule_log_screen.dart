@@ -271,12 +271,18 @@ class _RescheduleLogCard extends StatelessWidget {
                     ),
                     const SizedBox(width: AppSpacing.xs),
                     Text(
-                      'Requested by: ${requester?.name ?? 'Unknown'}',
+                      'Requested by: ${userSnapshot.connectionState == ConnectionState.waiting ? 'Loading...' : (requester?.name ?? 'Deleted User')}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             isDark
                                 ? AppColors.neutral400
                                 : AppColors.neutral600,
+                        fontStyle:
+                            (requester == null &&
+                                    userSnapshot.connectionState ==
+                                        ConnectionState.active)
+                                ? FontStyle.italic
+                                : null,
                       ),
                     ),
                   ],
@@ -360,14 +366,19 @@ class _RescheduleLogCard extends StatelessWidget {
                 stream: userRepository.getUserStream(request.approverId!),
                 builder: (context, approverSnapshot) {
                   final approver = approverSnapshot.data;
+                  final isDeleted =
+                      approverSnapshot.connectionState ==
+                          ConnectionState.active &&
+                      approver == null;
                   return Text(
-                    '${request.status == ApprovalRequestStatus.approved ? 'Approved' : 'Rejected'} by: ${approver?.name ?? 'Unknown'}',
+                    '${request.status == ApprovalRequestStatus.approved ? 'Approved' : 'Rejected'} by: ${approverSnapshot.connectionState == ConnectionState.waiting ? 'Loading...' : (approver?.name ?? 'Deleted User')}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color:
                           request.status == ApprovalRequestStatus.approved
                               ? Colors.green
                               : Colors.red,
                       fontWeight: FontWeight.w500,
+                      fontStyle: isDeleted ? FontStyle.italic : null,
                     ),
                   );
                 },

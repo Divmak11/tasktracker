@@ -411,6 +411,12 @@ class _AllTasksScreenState extends State<AllTasksScreen>
                         task: task,
                         assignee: assignee,
                         creator: creator,
+                        isAssigneeLoading:
+                            usersSnapshot.connectionState ==
+                            ConnectionState.waiting,
+                        isCreatorLoading:
+                            usersSnapshot.connectionState ==
+                            ConnectionState.waiting,
                         onTap: () => context.push('/task/${task.id}'),
                       );
                     },

@@ -284,6 +284,7 @@ class TaskDetailScreen extends StatelessWidget {
                                               isSupervisor
                                                   ? Icons.supervisor_account
                                                   : Icons.person,
+                                          connectionState: assigneeSnapshot.connectionState,
                                         );
                                       },
                                     ),
@@ -309,6 +310,7 @@ class TaskDetailScreen extends StatelessWidget {
                                     user: assignee,
                                     color: theme.colorScheme.primary,
                                     icon: Icons.person,
+                                    connectionState: assigneeSnapshot.connectionState,
                                   );
                                 },
                               ),
@@ -335,6 +337,7 @@ class TaskDetailScreen extends StatelessWidget {
                                   user: creator,
                                   color: Colors.orange,
                                   icon: Icons.create,
+                                  connectionState: creatorSnapshot.connectionState,
                                 );
                               },
                             ),
@@ -395,6 +398,11 @@ class TaskDetailScreen extends StatelessWidget {
                                           final user = userSnapshot.data;
                                           final isSup = task.supervisorIds
                                               .contains(assignment.userId);
+                                          
+                                          // Determine display name
+                                          final bool isLoading = userSnapshot.connectionState == ConnectionState.waiting;
+                                          final bool isDeleted = userSnapshot.connectionState == ConnectionState.active && user == null;
+                                          final String displayName = user?.name ?? (isLoading ? 'Loading...' : (isDeleted ? 'Deleted User' : 'Unknown'));
 
                                           return Container(
                                             padding: const EdgeInsets.all(
@@ -456,8 +464,7 @@ class TaskDetailScreen extends StatelessWidget {
                                                         children: [
                                                           Flexible(
                                                             child: Text(
-                                                              user?.name ??
-                                                                  'Unknown',
+                                                              displayName,
                                                               style: theme
                                                                   .textTheme
                                                                   .bodyMedium
@@ -465,6 +472,7 @@ class TaskDetailScreen extends StatelessWidget {
                                                                     fontWeight:
                                                                         FontWeight
                                                                             .w500,
+                                                                    fontStyle: isDeleted ? FontStyle.italic : FontStyle.normal,
                                                                   ),
                                                             ),
                                                           ),
@@ -731,16 +739,18 @@ class TaskDetailScreen extends StatelessWidget {
               // Bottom Action Bar
               if (canComplete || canEdit || isAssignee)
                 Container(
-                  padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.screenPaddingMobile,
+                    vertical: AppSpacing.md,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.scaffoldBackgroundColor,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        blurRadius: 10,
-                        offset: const Offset(0, -5),
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+                        width: 1,
                       ),
-                    ],
+                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -758,37 +768,56 @@ class TaskDetailScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: AppSpacing.sm),
                       ],
-                      // Reschedule button for assignee on ongoing tasks
-                      if (isAssignee && task.status == TaskStatus.ongoing) ...[
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder:
-                                  (_) => RescheduleRequestDialog(task: task),
-                            );
-                          },
-                          icon: const Icon(Icons.schedule),
-                          label: const Text('Request Reschedule'),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 48),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                      ],
-                      if (canEdit) ...[
-                        Row(
-                          children: [
+                      // Secondary actions row
+                      Row(
+                        children: [
+                          // Reschedule button
+                          if (isAssignee && task.status == TaskStatus.ongoing) ...[
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder:
+                                        (_) => RescheduleRequestDialog(task: task),
+                                  );
+                                },
+                                icon: const Icon(Icons.schedule, size: 18),
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Reschedule'),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: AppSpacing.sm,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (canEdit) const SizedBox(width: AppSpacing.sm),
+                          ],
+                          // Edit and Cancel buttons
+                          if (canEdit) ...[
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: () {
                                   context.push('/task/$taskId/edit');
                                 },
-                                icon: const Icon(Icons.edit_outlined),
-                                label: const Text('Edit'),
+                                icon: const Icon(Icons.edit_outlined, size: 18),
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Edit'),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: AppSpacing.sm,
+                                  ),
+                                ),
                               ),
                             ),
-                            const SizedBox(width: AppSpacing.md),
+                            const SizedBox(width: AppSpacing.sm),
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed:
@@ -797,16 +826,23 @@ class TaskDetailScreen extends StatelessWidget {
                                       taskRepository,
                                       task,
                                     ),
-                                icon: const Icon(Icons.cancel_outlined),
-                                label: const Text('Cancel'),
+                                icon: const Icon(Icons.cancel_outlined, size: 18),
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Cancel'),
+                                ),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: Colors.red,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: AppSpacing.sm,
+                                  ),
                                 ),
                               ),
                             ),
                           ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -868,9 +904,14 @@ class TaskDetailScreen extends StatelessWidget {
     required UserModel? user,
     required Color color,
     required IconData icon,
+    required ConnectionState connectionState,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+
+    // Determine what to display
+    final bool isLoading = connectionState == ConnectionState.waiting;
+    final bool isDeleted = connectionState == ConnectionState.active && user == null;
 
     return Row(
       children: [
@@ -953,12 +994,13 @@ class TaskDetailScreen extends StatelessWidget {
                   : Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      'Loading...',
+                      isLoading ? 'Loading...' : (isDeleted ? 'Deleted User' : 'Unknown'),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color:
                             isDark
                                 ? AppColors.neutral500
                                 : AppColors.neutral400,
+                        fontStyle: isDeleted ? FontStyle.italic : FontStyle.normal,
                       ),
                     ),
                   ),
