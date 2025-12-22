@@ -117,12 +117,12 @@ class TaskRepository {
         );
   }
 
-  /// Get all tasks created by a user
+  /// Get all tasks created by a user (latest first)
   Stream<List<TaskModel>> getCreatedTasksStream(String userId) {
     return _firestore
         .collection(_collection)
         .where('createdBy', isEqualTo: userId)
-        .orderBy('deadline', descending: false)
+        .orderBy('createdAt', descending: true)
         .snapshots()
         .map(
           (snapshot) =>
@@ -131,6 +131,7 @@ class TaskRepository {
                   .toList(),
         );
   }
+
 
   /// Update task via Cloud Function
   Future<void> updateTask(String taskId, Map<String, dynamic> updates) async {
