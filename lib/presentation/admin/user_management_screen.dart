@@ -651,6 +651,28 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       ),
                       const SizedBox(width: AppSpacing.xs),
                       _buildCompactRoleBadge(user.role, theme),
+                      if (user.status == UserStatus.pending) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'PENDING',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.blue.shade700,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                      ],
                       if (isRevoked) ...[
                         const SizedBox(width: AppSpacing.xs),
                         Container(

@@ -131,16 +131,25 @@ class _LoginScreenState extends State<LoginScreen> {
                     text: 'Continue with Google',
                     onPressed: _isLoading ? () {} : _handleGoogleSignIn,
                     type: AppButtonType.primary,
-                    leadingWidget: Image.network(
-                      'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
-                      height: 20,
+                    leadingWidget: Container(
                       width: 20,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
-                          Icons.g_mobiledata_rounded,
-                          size: 20,
-                        );
-                      },
+                      height: 20,
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Image.network(
+                        'https://lh3.googleusercontent.com/COxitqgJr1sJnIDe8-jiKhxDx1FrYbtRHKJ9z_hELisAlapwE9LUPh6fcXIfb5vwpbMl4xl9H9TRFPc5NOO8Sb3VSgIBrfRYvW6cUA',
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.g_mobiledata_rounded,
+                            size: 16,
+                            color: Color(0xFF4285F4),
+                          );
+                        },
+                      ),
                     ),
                     isLoading: _isLoading,
                     isFullWidth: true,
@@ -158,8 +167,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       isFullWidth: true,
                     ),
 
-                  // Spacer to push terms to bottom
-                  const Spacer(),
+                  // Large spacing to push terms toward bottom
+                  const SizedBox(height: AppSpacing.xxl * 2),
 
                   // Terms
                   _buildTermsAndPolicy(theme),
@@ -203,6 +212,37 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _buildGoogleIcon() {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Center(
+        child: Text(
+          'G',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            foreground: Paint()
+              ..shader = const LinearGradient(
+                colors: [
+                  Color(0xFF4285F4), // Google Blue
+                  Color(0xFFEA4335), // Google Red
+                  Color(0xFFFBBC05), // Google Yellow
+                  Color(0xFF34A853), // Google Green
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(const Rect.fromLTWH(0, 0, 20, 20)),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTermsAndPolicy(ThemeData theme) {
     return RichText(
       textAlign: TextAlign.center,
@@ -222,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TapGestureRecognizer()
                   ..onTap =
                       () => _launchUrl(
-                        'https://todoplannerapp.com/terms',
+                        AppStrings.termsOfServiceUrl,
                       ),
           ),
           const TextSpan(text: '\nand '),
@@ -236,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TapGestureRecognizer()
                   ..onTap =
                       () => _launchUrl(
-                        'https://todoplannerapp.com/privacy',
+                        AppStrings.privacyPolicyUrl,
                       ),
           ),
           const TextSpan(text: '.'),

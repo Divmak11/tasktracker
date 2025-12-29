@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/models/team_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/providers/auth_provider.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/services/notification_service.dart';
@@ -27,6 +30,7 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
   String? _selectedAdminId;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _accessDenied = false;
   TeamModel? _currentTeam;
 
   @override
@@ -39,6 +43,20 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
     try {
       final team = await _teamRepository.getTeam(widget.teamId);
       if (team != null && mounted) {
+        // Check access: only superAdmin or team admin can edit
+        final currentUser = context.read<AuthProvider>().currentUser;
+        final isSuperAdmin = currentUser?.role == UserRole.superAdmin;
+        final isTeamAdmin = team.adminId == currentUser?.id;
+        final canEdit = isSuperAdmin || isTeamAdmin;
+
+        if (!canEdit) {
+          setState(() {
+            _accessDenied = true;
+            _isLoading = false;
+          });
+          return;
+        }
+
         setState(() {
           _currentTeam = team;
           _nameController.text = team.name;
@@ -160,6 +178,47 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
       return Scaffold(
         appBar: AppBar(title: const Text('Edit Team')),
         body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Access denied - show error
+    if (_accessDenied) {
+      final isDark = theme.brightness == Brightness.dark;
+      return Scaffold(
+        appBar: AppBar(title: const Text('Edit Team')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.lock_outline,
+                  size: 64,
+                  color: isDark ? AppColors.neutral600 : AppColors.neutral400,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'Access Denied',
+                  style: theme.textTheme.headlineSmall,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Only the team admin or super admin can edit this team.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                ElevatedButton(
+                  onPressed: () => context.pop(),
+                  child: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 

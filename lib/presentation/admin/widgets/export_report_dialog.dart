@@ -10,7 +10,9 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/team_model.dart';
+import '../../../data/models/user_model.dart';
 import '../../../data/repositories/team_repository.dart';
+import '../../../data/repositories/user_repository.dart';
 import '../../../data/services/cloud_functions_service.dart';
 import '../../common/buttons/app_button.dart';
 
@@ -23,6 +25,7 @@ class ExportReportDialog extends StatefulWidget {
 
 class _ExportReportDialogState extends State<ExportReportDialog> {
   final TeamRepository _teamRepository = TeamRepository();
+  final UserRepository _userRepository = UserRepository();
 
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _endDate = DateTime.now();
@@ -33,10 +36,16 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
   List<TeamModel> _teams = [];
   bool _isLoadingTeams = true;
 
+  List<UserModel> _members = [];
+  bool _isLoadingMembers = true;
+
+  String _selectedMember = 'all';
+
   @override
   void initState() {
     super.initState();
     _loadTeams();
+    _loadMembers();
   }
 
   Future<void> _loadTeams() async {
@@ -48,6 +57,18 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
       });
     } catch (e) {
       setState(() => _isLoadingTeams = false);
+    }
+  }
+
+  Future<void> _loadMembers() async {
+    try {
+      final members = await _userRepository.getAllUsersStream().first;
+      setState(() {
+        _members = members;
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -165,6 +186,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
         endDate: _endDate,
         teamId: _selectedTeam,
         status: _selectedStatus,
+        userId: _selectedMember != 'all' ? _selectedMember : null,
       );
 
       if (!mounted) return;
@@ -233,6 +255,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
         endDate: _endDate,
         teamId: _selectedTeam,
         status: _selectedStatus,
+        userId: _selectedMember != 'all' ? _selectedMember : null,
       );
 
       if (!mounted) return;
@@ -350,16 +373,19 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
             ),
             const SizedBox(height: AppSpacing.lg),
 
-            // Team Filter
+            // Team Filter (disabled when specific member is selected)
             Text(
               'Team',
               style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.bold,
+                color: _selectedMember != 'all'
+                    ? theme.disabledColor
+                    : null,
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
             DropdownButtonFormField<String>(
-              value: _selectedTeam,
+              value: _selectedMember != 'all' ? 'all' : _selectedTeam,
               decoration: InputDecoration(
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadius.medium),
@@ -368,6 +394,9 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
                   horizontal: AppSpacing.md,
                   vertical: AppSpacing.sm,
                 ),
+                helperText: _selectedMember != 'all'
+                    ? 'Team filter disabled when member is selected'
+                    : null,
               ),
               items: [
                 const DropdownMenuItem(value: 'all', child: Text('All Teams')),
@@ -385,11 +414,13 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
                     ),
                   ),
               ],
-              onChanged: (value) {
-                if (value != null && value != 'loading') {
-                  setState(() => _selectedTeam = value);
-                }
-              },
+              onChanged: _selectedMember != 'all'
+                  ? null // Disable when member selected
+                  : (value) {
+                      if (value != null && value != 'loading') {
+                        setState(() => _selectedTeam = value);
+                      }
+                    },
             ),
             const SizedBox(height: AppSpacing.lg),
 
@@ -422,6 +453,58 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
               onChanged: (value) {
                 if (value != null) {
                   setState(() => _selectedStatus = value);
+                }
+              },
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Member Filter
+            Text(
+              'Member',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            DropdownButtonFormField<String>(
+              value: _selectedMember,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.medium),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+              ),
+              items: [
+                const DropdownMenuItem(
+                  value: 'all',
+                  child: Text('All Members'),
+                ),
+                if (_isLoadingMembers)
+                  const DropdownMenuItem(
+                    value: 'loading',
+                    enabled: false,
+                    child: Text('Loading members...'),
+                  )
+                else
+                  ..._members.map(
+                    (member) => DropdownMenuItem(
+                      value: member.id,
+                      child: Text(member.name),
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null && value != 'loading') {
+                  setState(() {
+                    _selectedMember = value;
+                    // Reset team filter when member is selected
+                    if (value != 'all') {
+                      _selectedTeam = 'all';
+                    }
+                  });
                 }
               },
             ),

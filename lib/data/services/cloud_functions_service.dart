@@ -409,6 +409,7 @@ class CloudFunctionsService {
     required DateTime endDate,
     String? teamId,
     String? status,
+    String? userId, // Add member filter
   }) async {
     final callable = _functions.httpsCallable('exportReport');
     final result = await callable.call({
@@ -416,6 +417,7 @@ class CloudFunctionsService {
       'endDate': endDate.toIso8601String(),
       if (teamId != null) 'teamId': teamId,
       if (status != null) 'status': status,
+      if (userId != null) 'userId': userId,
     });
     return Map<String, dynamic>.from(result.data);
   }

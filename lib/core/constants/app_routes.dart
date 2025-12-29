@@ -36,4 +36,10 @@ class AppRoutes {
 
   // Notifications
   static const String notifications = '/notifications';
+
+  // Member Dashboard - Filtered Tasks
+  static const String memberAssignedTasks = '/home/assigned-tasks';
+  static const String memberCreatedTasks = '/home/created-tasks';
+  static const String memberOverdueTasks = '/home/overdue-tasks';
+  static const String memberCompletedTasks = '/home/completed-tasks';
 }

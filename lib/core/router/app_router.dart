@@ -23,6 +23,8 @@ import '../../presentation/admin/invite_users_screen.dart';
 import '../../presentation/approvals/reschedule_approval_screen.dart';
 import '../../presentation/notifications/notification_center_screen.dart';
 import '../../presentation/home/home_screen.dart';
+import '../../presentation/home/member_dashboard_screen.dart';
+import '../../presentation/home/filtered_tasks_screen.dart';
 import '../../presentation/tasks/create_task_screen.dart';
 import '../../presentation/tasks/task_detail_screen.dart';
 import '../../presentation/tasks/edit_task_screen.dart';
@@ -247,7 +249,29 @@ class AppRouter {
             // Member Home (Alternative to Admin Dashboard)
             GoRoute(
               path: AppRoutes.home,
-              builder: (context, state) => const HomeScreen(),
+              builder: (context, state) => const MemberDashboardScreen(),
+              routes: [
+                GoRoute(
+                  path: 'assigned-tasks',
+                  builder: (context, state) =>
+                      const FilteredTasksScreen(filterType: 'assigned'),
+                ),
+                GoRoute(
+                  path: 'created-tasks',
+                  builder: (context, state) =>
+                      const FilteredTasksScreen(filterType: 'created'),
+                ),
+                GoRoute(
+                  path: 'overdue-tasks',
+                  builder: (context, state) =>
+                      const FilteredTasksScreen(filterType: 'overdue'),
+                ),
+                GoRoute(
+                  path: 'completed-tasks',
+                  builder: (context, state) =>
+                      const FilteredTasksScreen(filterType: 'completed'),
+                ),
+              ],
             ),
             GoRoute(
               path: '/task/create',

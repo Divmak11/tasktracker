@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/user_model.dart';
+import '../../../data/providers/auth_provider.dart';
 import '../../../data/repositories/user_repository.dart';
 
 /// Full-screen modal for selecting task assignees with supervisor support
@@ -147,6 +149,9 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
                         .where((u) => u.status == UserStatus.active)
                         .toList();
 
+                // Get current user ID
+                final currentUserId = context.read<AuthProvider>().currentUser?.id;
+
                 // Apply search filter
                 final filteredUsers =
                     _searchQuery.isEmpty
@@ -157,8 +162,12 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
                               u.email.toLowerCase().contains(query);
                         }).toList();
 
-                // Sort: selected first, then alphabetically
+                // Sort: current user first, then selected, then alphabetically
                 filteredUsers.sort((a, b) {
+                  // Current user always first
+                  if (a.id == currentUserId) return -1;
+                  if (b.id == currentUserId) return 1;
+                  // Then selected users
                   final aSelected = _selectedIds.contains(a.id);
                   final bSelected = _selectedIds.contains(b.id);
                   if (aSelected && !bSelected) return -1;
@@ -199,8 +208,9 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
                   itemBuilder: (context, index) {
                     final user = filteredUsers[index];
                     final isSelected = _selectedIds.contains(user.id);
+                    final isSelf = user.id == currentUserId;
 
-                    return _buildUserTile(user, isSelected, theme, isDark);
+                    return _buildUserTile(user, isSelected, isSelf, theme, isDark);
                   },
                 );
               },
@@ -214,6 +224,7 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
   Widget _buildUserTile(
     UserModel user,
     bool isSelected,
+    bool isSelf,
     ThemeData theme,
     bool isDark,
   ) {
@@ -284,6 +295,26 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
               ),
             ),
           ),
+          if (isSelf)
+            Container(
+              margin: const EdgeInsets.only(right: AppSpacing.xs),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.teal,
+                borderRadius: BorderRadius.circular(AppRadius.small),
+              ),
+              child: Text(
+                'Self',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           if (isSupervisor)
             Container(
               padding: const EdgeInsets.symmetric(

@@ -408,4 +408,53 @@ class TaskRepository {
       return result;
     });
   }
+
+  /// Get all tasks for calendar view (assigned to user OR created by user)
+  /// This ensures self-created/self-assigned tasks appear in the calendar
+  Stream<List<TaskModel>> getUserCalendarTasksStream(String userId) {
+    // Query for tasks assigned to user (legacy + multi-assignee)
+    final assignedQuery1 = _firestore
+        .collection(_collection)
+        .where('assignedTo', isEqualTo: userId);
+
+    final assignedQuery2 = _firestore
+        .collection(_collection)
+        .where('assigneeIds', arrayContains: userId);
+
+    // Query for tasks created by user
+    final createdQuery = _firestore
+        .collection(_collection)
+        .where('createdBy', isEqualTo: userId);
+
+    // Combine all streams
+    return assignedQuery1.snapshots().asyncMap((assigned1Snapshot) async {
+      final assigned2Snapshot = await assignedQuery2.get();
+      final createdSnapshot = await createdQuery.get();
+
+      final allTasks = <String, TaskModel>{};
+
+      // Add assigned tasks (legacy)
+      for (final doc in assigned1Snapshot.docs) {
+        final task = TaskModel.fromJson(doc.data(), doc.id);
+        allTasks[task.id] = task;
+      }
+
+      // Add assigned tasks (multi-assignee)
+      for (final doc in assigned2Snapshot.docs) {
+        final task = TaskModel.fromJson(doc.data(), doc.id);
+        allTasks[task.id] = task;
+      }
+
+      // Add created tasks
+      for (final doc in createdSnapshot.docs) {
+        final task = TaskModel.fromJson(doc.data(), doc.id);
+        allTasks[task.id] = task;
+      }
+
+      // Return all unique tasks sorted by deadline
+      final result = allTasks.values.toList();
+      result.sort((a, b) => a.deadline.compareTo(b.deadline));
+      return result;
+    });
+  }
 }

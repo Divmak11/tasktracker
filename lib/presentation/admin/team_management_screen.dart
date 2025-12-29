@@ -8,6 +8,7 @@ import '../../core/utils/permission_utils.dart';
 import '../../data/providers/auth_provider.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/models/team_model.dart';
+import '../../data/models/user_model.dart';
 import '../common/cards/app_card.dart';
 
 class TeamManagementScreen extends StatelessWidget {
@@ -18,14 +19,32 @@ class TeamManagementScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final teamRepository = TeamRepository();
+    final currentUser = context.watch<AuthProvider>().currentUser;
+
+    if (currentUser == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // Determine which stream to use based on user role
+    // Super Admin: see all teams
+    // Team Admin: see teams they admin (memberIds contains them OR adminId is them)
+    // Regular Member: see only teams they belong to (read-only)
+    final Stream<List<TeamModel>> teamsStream;
+    final bool canCreateTeam = PermissionUtils.canCreateTeam(currentUser.role);
+    
+    if (currentUser.role == UserRole.superAdmin) {
+      // Super Admin sees all teams
+      teamsStream = teamRepository.getAllTeamsStream();
+    } else {
+      // Other users only see teams they belong to
+      teamsStream = teamRepository.getUserTeamsStream(currentUser.id);
+    }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Team Management'),
+        title: const Text('Teams'),
       ),
-      floatingActionButton: PermissionUtils.canCreateTeam(
-        context.watch<AuthProvider>().userRole,
-      )
+      floatingActionButton: canCreateTeam
           ? FloatingActionButton(
               onPressed: () {
                 context.push('${AppRoutes.teamManagement}/create');
@@ -34,7 +53,7 @@ class TeamManagementScreen extends StatelessWidget {
             )
           : null,
       body: StreamBuilder<List<TeamModel>>(
-        stream: teamRepository.getAllTeamsStream(),
+        stream: teamsStream,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
@@ -67,12 +86,16 @@ class TeamManagementScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   Text(
-                    'No Teams Yet',
+                    currentUser.role == UserRole.superAdmin
+                        ? 'No Teams Yet'
+                        : 'No Teams',
                     style: theme.textTheme.titleLarge,
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Create your first team to get started',
+                    currentUser.role == UserRole.superAdmin
+                        ? 'Create your first team to get started'
+                        : 'You are not part of any team',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: isDark ? AppColors.neutral400 : AppColors.neutral600,
                     ),
@@ -89,10 +112,26 @@ class TeamManagementScreen extends StatelessWidget {
             separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.md),
             itemBuilder: (context, index) {
               final team = teams[index];
+              // Check if user can edit this team
+              final bool canEdit = currentUser.role == UserRole.superAdmin ||
+                  team.adminId == currentUser.id;
+              
               return AppCard(
                 type: AppCardType.standard,
                 onTap: () {
-                  context.push('${AppRoutes.teamManagement}/${team.id}');
+                  // Only allow navigation to team detail if user can edit
+                  // Otherwise just show team info (read-only)
+                  if (canEdit) {
+                    context.push('${AppRoutes.teamManagement}/${team.id}');
+                  } else {
+                    // Show a snackbar for read-only access
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Team: ${team.name}\nMembers: ${team.memberIds.length}'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
                 },
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -135,8 +174,9 @@ class TeamManagementScreen extends StatelessWidget {
                           ],
                         ),
                       ),
+                      // Show different icon based on access level
                       Icon(
-                        Icons.chevron_right_rounded,
+                        canEdit ? Icons.chevron_right_rounded : Icons.visibility_outlined,
                         color: isDark ? AppColors.neutral600 : AppColors.neutral400,
                       ),
                     ],
@@ -150,3 +190,4 @@ class TeamManagementScreen extends StatelessWidget {
     );
   }
 }
+

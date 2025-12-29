@@ -69,4 +69,10 @@ class AppStrings {
   static const String errorGeneric = 'Something went wrong. Please try again.';
   static const String errorNetwork = 'Network error. Please check your connection.';
   static const String errorAuth = 'Authentication failed. Please try again.';
+
+  // Legal / Policy URLs
+  static const String termsOfServiceUrl =
+      'https://docs.google.com/document/d/13M9W3_RF6AI1ivcLOkClIWjMXMpDLyTA17ub747Q5h4/edit?usp=sharing';
+  static const String privacyPolicyUrl =
+      'https://docs.google.com/document/d/1Jlyhec9EmiHeHzVa6aXtCePoIRc1uB3nYXUgW-sweGM/edit?usp=sharing';
 }
