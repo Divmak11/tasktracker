@@ -19,11 +19,15 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with AutomaticKeepAliveClientMixin {
   final CalendarService _calendarService = CalendarService();
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
   bool _isCalendarLoading = false;
   bool _isDeletingAccount = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   Future<void> _deleteAccount() async {
     final authProvider = context.read<AuthProvider>();
@@ -166,29 +170,147 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       if (isConnected) {
-        await _calendarService.disconnect(userId);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Calendar disconnected')),
-          );
+        // DISCONNECT FLOW
+        final result = await _calendarService.disconnect(userId);
+
+        if (!mounted) return;
+
+        switch (result) {
+          case CalendarDisconnectResult.success:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Calendar disconnected successfully'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            break;
+
+          case CalendarDisconnectResult.alreadyDisconnected:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Calendar was already disconnected'),
+              ),
+            );
+            break;
+
+          case CalendarDisconnectResult.networkError:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Network error. Please check your connection and try again.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            break;
+
+          case CalendarDisconnectResult.backendFailed:
+          case CalendarDisconnectResult.localSignOutFailed:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Failed to disconnect calendar. Please try again.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            break;
         }
       } else {
-        final success = await _calendarService.connect(userId);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                success ? 'Calendar connected!' : 'Failed to connect calendar',
+        // CONNECT FLOW
+        final result = await _calendarService.connect(userId);
+
+        if (!mounted) return;
+
+        switch (result) {
+          case CalendarConnectResult.success:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Calendar connected successfully!'),
+                backgroundColor: Colors.green,
               ),
-              backgroundColor: success ? Colors.green : Colors.red,
-            ),
-          );
+            );
+            break;
+
+          case CalendarConnectResult.userCancelled:
+            // User cancelled - no snackbar needed, just reset loading state
+            debugPrint('📅 Calendar connection cancelled by user');
+            break;
+
+          case CalendarConnectResult.networkError:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Network error. Please check your connection and try again.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            break;
+
+          case CalendarConnectResult.signInFailed:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Google sign-in failed. Please try again.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            break;
+
+          case CalendarConnectResult.noServerAuthCode:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Configuration error. Please contact support.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            break;
+
+          case CalendarConnectResult.verificationFailed:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Calendar verification failed. Please ensure you granted calendar permissions.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            break;
+
+          case CalendarConnectResult.backendExchangeFailed:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Failed to connect calendar. Please try again.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            break;
+
+          case CalendarConnectResult.unknownError:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'An unexpected error occurred. Please try again.',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            break;
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -198,6 +320,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final authProvider = context.watch<AuthProvider>();

@@ -56,6 +56,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked != null) {
+      // Unfocus to prevent focus return to description when self-assignment is selected
+      if (_assignmentType == AssignmentType.self) {
+        FocusScope.of(context).unfocus();
+      }
       setState(() => _selectedDate = picked);
     }
   }
@@ -83,7 +87,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             picked.minute,
           );
 
-          if (selectedDateTime.isBefore(now)) {
+          if (selectedDateTime.isBefore(now.add(const Duration(minutes: 1)))) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -97,6 +101,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             return; // Don't set the time
           }
         }
+      }
+      // Unfocus to prevent focus return to description when self-assignment is selected
+      if (_assignmentType == AssignmentType.self) {
+        FocusScope.of(context).unfocus();
       }
       setState(() => _selectedTime = picked);
     }

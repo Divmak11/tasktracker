@@ -54,16 +54,16 @@ class TaskTile extends StatelessWidget {
             border: Border.all(
               color:
                   isOverdue
-                      ? Colors.red.withValues(alpha: 0.5)
+                      ? Colors.red.withOpacity(0.5)
                       : isUrgent
-                      ? Colors.orange.withValues(alpha: 0.5)
+                      ? Colors.orange.withOpacity(0.5)
                       : (isDark ? AppColors.neutral700 : AppColors.neutral200),
               width: isOverdue || isUrgent ? 1.5 : 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: (isDark ? Colors.black : Colors.grey).withValues(
-                  alpha: 0.08,
+                color: (isDark ? Colors.black : Colors.grey).withOpacity(
+                  0.08,
                 ),
                 blurRadius: 8,
                 offset: const Offset(0, 2),

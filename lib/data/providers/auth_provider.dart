@@ -297,6 +297,27 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
+  /// Sign in with Email and Password (for Reviewers only)
+  Future<void> signInWithEmail(String email, String password) async {
+    debugPrint('🔐 Starting Email Sign-In...');
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      await _authRepository.signInWithEmailAndPassword(email, password);
+      debugPrint('✅ Email Sign-In successful');
+      // User data will be loaded automatically via auth state listener
+
+      // Wait for user data to actually load (with timeout)
+      await _waitForUserData();
+    } catch (e) {
+      debugPrint('❌ Email Sign-In failed: $e');
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   /// Sign out
   Future<void> logout() async {
     _isLoading = true;

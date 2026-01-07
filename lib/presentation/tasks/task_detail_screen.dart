@@ -771,8 +771,8 @@ class TaskDetailScreen extends StatelessWidget {
                       // Secondary actions row
                       Row(
                         children: [
-                          // Reschedule button
-                          if (isAssignee && task.status == TaskStatus.ongoing) ...[
+                          // Reschedule button (hidden for self-assigned tasks - creator can edit directly)
+                          if (isAssignee && !isCreator && task.status == TaskStatus.ongoing) ...[
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: () {
@@ -883,7 +883,7 @@ class TaskDetailScreen extends StatelessWidget {
         vertical: AppSpacing.xs,
       ),
       decoration: BoxDecoration(
-        color: badgeColor.withValues(alpha: 0.1),
+        color: badgeColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppRadius.small),
         border: Border.all(color: badgeColor),
       ),
@@ -919,7 +919,7 @@ class TaskDetailScreen extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
+            color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(icon, size: 16, color: color),
@@ -970,7 +970,7 @@ class TaskDetailScreen extends StatelessWidget {
                       const SizedBox(width: AppSpacing.sm),
                       CircleAvatar(
                         radius: 14,
-                        backgroundColor: color.withValues(alpha: 0.2),
+                        backgroundColor: color.withOpacity(0.2),
                         backgroundImage:
                             user.avatarUrl != null
                                 ? NetworkImage(user.avatarUrl!)

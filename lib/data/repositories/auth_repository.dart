@@ -58,6 +58,21 @@ class AuthRepository {
     }
   }
 
+  /// Sign in with Email and Password (for Reviewers only)
+  Future<firebase_auth.UserCredential> signInWithEmailAndPassword(
+    String email,
+    String password,
+  ) async {
+    try {
+      return await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      throw Exception('Email Sign-In failed: $e');
+    }
+  }
+
   Future<firebase_auth.UserCredential?> signInWithGoogleSilently() async {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn

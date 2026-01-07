@@ -6,8 +6,8 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/task_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/providers/auth_provider.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/repositories/task_repository.dart';
-import '../../data/repositories/user_repository.dart';
 import '../home/widgets/task_card.dart';
 
 class FilteredTasksScreen extends StatefulWidget {
@@ -21,8 +21,6 @@ class FilteredTasksScreen extends StatefulWidget {
 
 class _FilteredTasksScreenState extends State<FilteredTasksScreen> {
   final TaskRepository _taskRepository = TaskRepository();
-  final UserRepository _userRepository = UserRepository();
-  final Map<String, UserModel?> _userCache = {};
 
   String get _title {
     switch (widget.filterType) {
@@ -68,18 +66,8 @@ class _FilteredTasksScreenState extends State<FilteredTasksScreen> {
     }
   }
 
-  Future<void> _prefetchUsers(Set<String> userIds) async {
-    final uncachedIds =
-        userIds.where((id) => !_userCache.containsKey(id)).toList();
-    if (uncachedIds.isEmpty) return;
-
-    final futures = uncachedIds.map((id) => _userRepository.getUser(id));
-    final users = await Future.wait(futures);
-
-    for (int i = 0; i < uncachedIds.length; i++) {
-      _userCache[uncachedIds[i]] = users[i];
-    }
-  }
+  // Prefetching is now handled globally via DataCacheProvider 
+  // to ensure data persists across all sub-screens.
 
   @override
   Widget build(BuildContext context) {
@@ -139,15 +127,15 @@ class _FilteredTasksScreenState extends State<FilteredTasksScreen> {
             );
           }
 
-          // Prefetch all unique user IDs
+          // Prefetch all unique user IDs via global provider
           final userIds = <String>{
             ...tasks.map((t) => t.createdBy),
             ...tasks.expand((t) => t.allAssigneeIds),
           };
+          context.read<DataCacheProvider>().prefetchUsers(userIds);
 
-          return FutureBuilder<void>(
-            future: _prefetchUsers(userIds),
-            builder: (context, _) {
+          return Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
               return RefreshIndicator(
                 onRefresh: () async {
                   setState(() {});
@@ -162,8 +150,8 @@ class _FilteredTasksScreenState extends State<FilteredTasksScreen> {
                     final task = tasks[index];
                     return TaskCard(
                       task: task,
-                      creator: _userCache[task.createdBy],
-                      assignee: _userCache[task.primaryAssigneeId],
+                      creator: cache.getUser(task.createdBy),
+                      assignee: cache.getUser(task.primaryAssigneeId),
                     );
                   },
                 ),

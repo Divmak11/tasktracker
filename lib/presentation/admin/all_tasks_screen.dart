@@ -4,9 +4,10 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/task_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/repositories/task_repository.dart';
-import '../../data/repositories/user_repository.dart';
 import '../common/list_items/task_tile.dart';
+import 'package:provider/provider.dart';
 
 class AllTasksScreen extends StatefulWidget {
   /// Initial tab index: 0=All, 1=Ongoing, 2=Completed, 3=Cancelled
@@ -22,7 +23,6 @@ class _AllTasksScreenState extends State<AllTasksScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TaskRepository _taskRepository = TaskRepository();
-  final UserRepository _userRepository = UserRepository();
   late Stream<List<TaskModel>> _tasksStream;
 
   // Filter state
@@ -206,14 +206,9 @@ class _AllTasksScreenState extends State<AllTasksScreen>
         title: const Text('All Tasks'),
         actions: [
           // Filter button
-          StreamBuilder<List<UserModel>>(
-            stream: _userRepository.getAllUsersStream(),
-            builder: (context, snapshot) {
-              final users =
-                  snapshot.data
-                      ?.where((u) => u.status == UserStatus.active)
-                      .toList() ??
-                  [];
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
+              final users = cache.allUsers.where((u) => u.status == UserStatus.active).toList();
 
               return Stack(
                 children: [
@@ -266,8 +261,8 @@ class _AllTasksScreenState extends State<AllTasksScreen>
                     horizontal: AppSpacing.md,
                     vertical: AppSpacing.xs,
                   ),
-                  color: theme.colorScheme.primaryContainer.withValues(
-                    alpha: 0.3,
+                  color: theme.colorScheme.primaryContainer.withOpacity(
+                    0.3,
                   ),
                   child: Row(
                     children: [
@@ -332,17 +327,15 @@ class _AllTasksScreenState extends State<AllTasksScreen>
 
           final allTasks = taskSnapshot.data!;
 
-          // Build TabBarView for swipeable tabs
-          return StreamBuilder<List<UserModel>>(
-            stream: _userRepository.getAllUsersStream(),
-            builder: (context, usersSnapshot) {
-              final usersMap = <String, UserModel>{};
-              if (usersSnapshot.hasData) {
-                for (final user in usersSnapshot.data!) {
-                  usersMap[user.id] = user;
-                }
-              }
+          // Prefetch all unique user IDs
+          final userIds = <String>{
+            ...allTasks.map((t) => t.createdBy),
+            ...allTasks.expand((t) => t.allAssigneeIds),
+          };
+          context.read<DataCacheProvider>().prefetchUsers(userIds);
 
+          return Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
               return TabBarView(
                 controller: _tabController,
                 children: List.generate(4, (tabIndex) {
@@ -404,19 +397,13 @@ class _AllTasksScreenState extends State<AllTasksScreen>
                         (_, __) => const SizedBox(height: AppSpacing.sm),
                     itemBuilder: (context, index) {
                       final task = filteredTasks[index];
-                      final assignee = usersMap[task.primaryAssigneeId];
-                      final creator = usersMap[task.createdBy];
+                      final assignee = cache.getUser(task.primaryAssigneeId);
+                      final creator = cache.getUser(task.createdBy);
 
                       return TaskTile(
                         task: task,
                         assignee: assignee,
                         creator: creator,
-                        isAssigneeLoading:
-                            usersSnapshot.connectionState ==
-                            ConnectionState.waiting,
-                        isCreatorLoading:
-                            usersSnapshot.connectionState ==
-                            ConnectionState.waiting,
                         onTap: () => context.push('/task/${task.id}'),
                       );
                     },

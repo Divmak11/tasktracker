@@ -57,8 +57,9 @@ class _RescheduleRequestDialogState extends State<RescheduleRequestDialog> {
   }
 
   bool get _isValidDeadline {
+    final now = DateTime.now();
     return _selectedDate != null &&
-        _newDeadline.isAfter(DateTime.now()) &&
+        _newDeadline.isAfter(now.add(const Duration(minutes: 1))) &&
         _newDeadline.isAfter(widget.task.deadline);
   }
 
@@ -92,6 +93,37 @@ class _RescheduleRequestDialogState extends State<RescheduleRequestDialog> {
       initialTime: _selectedTime ?? TimeOfDay.now(),
     );
     if (picked != null) {
+      if (_selectedDate != null) {
+        final now = DateTime.now();
+        final isToday =
+            _selectedDate!.year == now.year &&
+            _selectedDate!.month == now.month &&
+            _selectedDate!.day == now.day;
+
+        if (isToday) {
+          final selectedDateTime = DateTime(
+            _selectedDate!.year,
+            _selectedDate!.month,
+            _selectedDate!.day,
+            picked.hour,
+            picked.minute,
+          );
+
+          if (selectedDateTime.isBefore(now.add(const Duration(minutes: 1)))) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Selected time is in the past. Please choose a future time.',
+                  ),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
       setState(() => _selectedTime = picked);
     }
   }
@@ -274,14 +306,24 @@ class _RescheduleRequestDialogState extends State<RescheduleRequestDialog> {
                   ],
                 ),
 
-                if (_selectedDate != null && !_isValidDeadline) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'New deadline must be later than current deadline',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.red,
+                if (_selectedDate != null && _selectedDate != null) ...[
+                  if (!_newDeadline.isAfter(DateTime.now())) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Deadline cannot be in the past',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.red,
+                      ),
                     ),
-                  ),
+                  ] else if (!_newDeadline.isAfter(widget.task.deadline)) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'New deadline must be later than current deadline',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
                 ],
 
                 const SizedBox(height: AppSpacing.md),

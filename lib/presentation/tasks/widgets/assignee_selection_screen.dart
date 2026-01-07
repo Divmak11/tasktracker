@@ -106,7 +106,7 @@ class _AssigneeSelectionScreenState extends State<AssigneeSelectionScreen> {
                 horizontal: AppSpacing.md,
                 vertical: AppSpacing.sm,
               ),
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+              color: theme.colorScheme.primaryContainer.withOpacity(0.3),
               child: Row(
                 children: [
                   Icon(

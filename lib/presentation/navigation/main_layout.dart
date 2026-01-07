@@ -5,64 +5,46 @@ import '../../core/constants/app_routes.dart';
 import '../../core/utils/permission_utils.dart';
 import '../../data/providers/auth_provider.dart';
 
-class MainLayout extends StatelessWidget {
-  final Widget child;
+import '../../data/providers/data_cache_provider.dart';
 
-  const MainLayout({super.key, required this.child});
+class MainLayout extends StatefulWidget {
+  final StatefulNavigationShell navigationShell;
+
+  const MainLayout({super.key, required this.navigationShell});
+
+  @override
+  State<MainLayout> createState() => _MainLayoutState();
+}
+
+class _MainLayoutState extends State<MainLayout> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthProvider>();
+      final user = auth.currentUser;
+      if (user != null) {
+        final isSuperAdmin = PermissionUtils.isSuperAdmin(auth.userRole);
+        context.read<DataCacheProvider>().init(user.id, isSuperAdmin: isSuperAdmin);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
     final authProvider = context.watch<AuthProvider>();
     final isSuperAdmin = PermissionUtils.isSuperAdmin(authProvider.userRole);
 
-    // Determine current index based on route and role
-    int currentIndex = 0;
-    if (isSuperAdmin) {
-      // Super Admin: Dashboard, Teams, Settings
-      if (location == AppRoutes.adminDashboard || location == '/admin') {
-        currentIndex = 0;
-      } else if (location.contains('/teams') ||
-          location.startsWith(AppRoutes.teamManagement)) {
-        currentIndex = 1;
-      } else if (location.contains('/settings') ||
-          location.startsWith(AppRoutes.settings)) {
-        currentIndex = 2;
-      }
-    } else {
-      // Member/Team Admin: My Tasks, Teams, Settings
-      if (location == '/' || location == AppRoutes.home) {
-        currentIndex = 0;
-      } else if (location.contains('/teams') ||
-          location.startsWith(AppRoutes.teamManagement)) {
-        currentIndex = 1;
-      } else if (location.contains('/settings') ||
-          location.startsWith(AppRoutes.settings)) {
-        currentIndex = 2;
-      }
-    }
-
     return Scaffold(
-      body: child,
+      body: widget.navigationShell,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: currentIndex,
+        selectedIndex: widget.navigationShell.currentIndex,
         onDestinationSelected: (index) {
-          switch (index) {
-            case 0:
-              // Navigate based on role
-              if (isSuperAdmin) {
-                context.go(AppRoutes.adminDashboard);
-              } else {
-                context.go(AppRoutes.home);
-              }
-              break;
-            case 1:
-              context.go(AppRoutes.teamManagement);
-              break;
-            case 2:
-              context.go(AppRoutes.settings);
-              break;
-          }
+          widget.navigationShell.goBranch(
+            index,
+            // Initial location when tapping the item:
+            initialLocation: index == widget.navigationShell.currentIndex,
+          );
         },
         destinations: [
           NavigationDestination(

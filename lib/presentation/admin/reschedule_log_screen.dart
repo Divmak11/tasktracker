@@ -78,7 +78,7 @@ class _RescheduleLogScreenState extends State<RescheduleLogScreen> {
                     onDeleted: () => setState(() => _selectedStatus = null),
                     backgroundColor: _getStatusColor(
                       _selectedStatus!,
-                    ).withValues(alpha: 0.1),
+                    ).withOpacity(0.1),
                     labelStyle: TextStyle(
                       color: _getStatusColor(_selectedStatus!),
                     ),
@@ -438,7 +438,7 @@ class _RescheduleLogCard extends StatelessWidget {
         vertical: 4,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppRadius.small),
         border: Border.all(color: color),
       ),

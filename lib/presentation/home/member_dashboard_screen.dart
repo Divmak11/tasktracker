@@ -10,6 +10,7 @@ import '../../data/models/task_model.dart';
 import '../../data/models/approval_request_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/providers/auth_provider.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/repositories/notification_repository.dart';
 import '../common/cards/app_card.dart';
 
@@ -22,51 +23,57 @@ class MemberDashboardScreen extends StatefulWidget {
 
 class _MemberDashboardScreenState extends State<MemberDashboardScreen>
     with AutomaticKeepAliveClientMixin {
+  // Repositories
+  // These repositories are now primarily used by DataCacheProvider internally,
+  // but kept here if any direct calls are still needed (e.g., for specific screens).
   final TaskRepository _taskRepository = TaskRepository();
   final ApprovalRepository _approvalRepository = ApprovalRepository();
   final NotificationRepository _notificationRepository =
       NotificationRepository();
 
-  // Cache streams
-  late final Stream<List<TaskModel>> _ongoingAssignedStream;
-  late final Stream<List<TaskModel>> _activeCreatedStream;
-  late final Stream<List<TaskModel>> _overdueTasksStream;
-  late final Stream<List<TaskModel>> _completedTasksStream;
-  late final Stream<List<ApprovalRequestModel>> _pendingReschedulesStream;
-  late final Stream<int> _unreadCountStream;
-
+  // Counters are now managed globally by DataCacheProvider to prevent flicker
+  
   @override
   bool get wantKeepAlive => true;
 
-  @override
-  void initState() {
-    super.initState();
-    final currentUser = context.read<AuthProvider>().currentUser;
-    if (currentUser != null) {
-      // Filter out self-assigned tasks and overdue tasks (they go to Overdue tab)
-      _ongoingAssignedStream = _taskRepository
-          .getOngoingAssignedTasksStream(currentUser.id)
-          .map((tasks) => tasks
-              .where((t) => t.createdBy != currentUser.id && !t.isOverdue)
-              .toList());
-      // Filter out overdue tasks (they go to Overdue tab)
-      _activeCreatedStream = _taskRepository
-          .getCreatedTasksStream(currentUser.id)
-          .map((tasks) =>
-              tasks.where((t) => t.status == TaskStatus.ongoing && !t.isOverdue).toList());
-      // Overdue should also exclude self-assigned for consistency
-      _overdueTasksStream = _taskRepository
-          .getUserCalendarTasksStream(currentUser.id)
-          .map((tasks) => tasks
-              .where((t) => t.status == TaskStatus.ongoing && t.isOverdue)
-              .toList());
-      _completedTasksStream =
-          _taskRepository.getPastAssignedTasksStream(currentUser.id);
-      _pendingReschedulesStream =
-          _approvalRepository.getPendingRescheduleRequestsStream(currentUser.id);
-      _unreadCountStream =
-          _notificationRepository.getUnreadCountStream(currentUser.id);
-    }
+  // Computed stream getters for real-time updates
+  // These streams are now primarily consumed by DataCacheProvider.
+  Stream<List<TaskModel>> _getOngoingAssignedStream(String userId) {
+    // Filter out self-assigned tasks and overdue tasks (they go to Overdue tab)
+    return _taskRepository
+        .getOngoingAssignedTasksStream(userId)
+        .map((tasks) => tasks
+            .where((t) => t.createdBy != userId && !t.isOverdue)
+            .toList());
+  }
+
+  Stream<List<TaskModel>> _getActiveCreatedStream(String userId) {
+    // Filter out overdue tasks (they go to Overdue tab)
+    return _taskRepository
+        .getCreatedTasksStream(userId)
+        .map((tasks) =>
+            tasks.where((t) => t.status == TaskStatus.ongoing && !t.isOverdue).toList());
+  }
+
+  Stream<List<TaskModel>> _getOverdueTasksStream(String userId) {
+    // Include both assigned AND created overdue tasks
+    return _taskRepository
+        .getUserCalendarTasksStream(userId)
+        .map((tasks) => tasks
+            .where((t) => t.status == TaskStatus.ongoing && t.isOverdue)
+            .toList());
+  }
+
+  Stream<List<TaskModel>> _getCompletedTasksStream(String userId) {
+    return _taskRepository.getPastAssignedTasksStream(userId);
+  }
+
+  Stream<List<ApprovalRequestModel>> _getPendingReschedulesStream(String userId) {
+    return _approvalRepository.getPendingRescheduleRequestsStream(userId);
+  }
+
+  Stream<int> _getUnreadCountStream(String userId) {
+    return _notificationRepository.getUnreadCountStream(userId);
   }
 
   @override
@@ -88,10 +95,9 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
             tooltip: 'Calendar View',
             onPressed: () => context.push('/calendar'),
           ),
-          StreamBuilder<List<ApprovalRequestModel>>(
-            stream: _pendingReschedulesStream,
-            builder: (context, snapshot) {
-              final pendingCount = snapshot.data?.length ?? 0;
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
+              final pendingCount = cache.pendingReschedulesCount;
               return Stack(
                 children: [
                   IconButton(
@@ -128,10 +134,9 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
               );
             },
           ),
-          StreamBuilder<int>(
-            stream: _unreadCountStream,
-            builder: (context, snapshot) {
-              final unreadCount = snapshot.data ?? 0;
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
+              final unreadCount = cache.unreadCount;
               return Stack(
                 children: [
                   IconButton(
@@ -187,87 +192,62 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
             ),
             const SizedBox(height: AppSpacing.md),
 
-            // Quick Actions with real-time badge counts
-            StreamBuilder<List<TaskModel>>(
-              stream: _ongoingAssignedStream,
-              builder: (context, assignedSnapshot) {
-                return StreamBuilder<List<TaskModel>>(
-                  stream: _activeCreatedStream,
-                  builder: (context, createdSnapshot) {
-                    return StreamBuilder<List<TaskModel>>(
-                      stream: _overdueTasksStream,
-                      builder: (context, overdueSnapshot) {
-                        return StreamBuilder<List<TaskModel>>(
-                          stream: _completedTasksStream,
-                          builder: (context, completedSnapshot) {
-                            final assignedCount =
-                                assignedSnapshot.data?.length ?? 0;
-                            final createdCount =
-                                createdSnapshot.data?.length ?? 0;
-                            final overdueCount =
-                                overdueSnapshot.data?.length ?? 0;
-                            final completedCount =
-                                completedSnapshot.data?.length ?? 0;
-
-                            return Column(
-                              children: [
-                                _buildActionCard(
-                                  context,
-                                  'Ongoing Tasks (Assigned)',
-                                  'View tasks assigned to you',
-                                  Icons.assignment_ind_outlined,
-                                  () => context.push('/home/assigned-tasks'),
-                                  badgeCount: assignedCount,
-                                  badgeColor: Colors.blue,
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                _buildActionCard(
-                                  context,
-                                  'Ongoing Tasks (Created)',
-                                  'Tasks you created that are ongoing',
-                                  Icons.create_outlined,
-                                  () => context.push('/home/created-tasks'),
-                                  badgeCount: createdCount,
-                                  badgeColor: Colors.green,
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                _buildActionCard(
-                                  context,
-                                  'Overdue Tasks',
-                                  'Tasks that require immediate attention',
-                                  Icons.warning_amber_rounded,
-                                  () => context.push('/home/overdue-tasks'),
-                                  badgeCount: overdueCount,
-                                  badgeColor: Colors.red,
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                _buildActionCard(
-                                  context,
-                                  'Completed Tasks',
-                                  'View your completed tasks',
-                                  Icons.check_circle_outline,
-                                  () => context.push('/home/completed-tasks'),
-                                  badgeCount: completedCount,
-                                  badgeColor: Colors.grey,
-                                ),
-                                // Team Admin only: Create Team
-                                if (currentUser.role == UserRole.teamAdmin) ...[
-                                  const SizedBox(height: AppSpacing.md),
-                                  _buildActionCard(
-                                    context,
-                                    'Create Team',
-                                    'Create a new team',
-                                    Icons.group_add,
-                                    () => context.push('/admin/teams/create'),
-                                  ),
-                                ],
-                              ],
-                            );
-                          },
-                        );
-                      },
-                    );
-                  },
+            // Quick Actions with badge counts from Global Cache
+            Consumer<DataCacheProvider>(
+              builder: (context, cache, _) {
+                return Column(
+                  children: [
+                    _buildActionCard(
+                      context,
+                      'Ongoing Tasks (Assigned)',
+                      'View tasks assigned to you',
+                      Icons.assignment_ind_outlined,
+                      () => context.push('/home/assigned-tasks'),
+                      badgeCount: cache.assignedCount,
+                      badgeColor: Colors.blue,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _buildActionCard(
+                      context,
+                      'Ongoing Tasks (Created)',
+                      'View tasks you created',
+                      Icons.add_task_outlined,
+                      () => context.push('/home/created-tasks'),
+                      badgeCount: cache.createdCount,
+                      badgeColor: Colors.green,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _buildActionCard(
+                      context,
+                      'Overdue Tasks',
+                      'Tasks past their deadline',
+                      Icons.running_with_errors_outlined,
+                      () => context.push('/home/overdue-tasks'),
+                      badgeCount: cache.overdueCount,
+                      badgeColor: Colors.red,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _buildActionCard(
+                      context,
+                      'Past/Completed Tasks',
+                      'History of completed tasks',
+                      Icons.history_outlined,
+                      () => context.push('/home/completed-tasks'),
+                      badgeCount: cache.completedCount,
+                      badgeColor: Colors.grey,
+                    ),
+                    // Team Admin only: Create Team
+                    if (currentUser.role == UserRole.teamAdmin) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      _buildActionCard(
+                        context,
+                        'Create Team',
+                        'Create a new team',
+                        Icons.group_add,
+                        () => context.push(AppRoutes.teamManagement),
+                      ),
+                    ],
+                  ],
                 );
               },
             ),
@@ -294,23 +274,26 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
       type: AppCardType.standard,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.sm,
+        ),
         child: Row(
           children: [
             // Icon
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppSpacing.sm),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
+                color: isDark ? theme.colorScheme.primaryContainer : theme.colorScheme.primary,
                 borderRadius: BorderRadius.circular(AppRadius.medium),
               ),
               child: Icon(
                 icon,
-                color: theme.colorScheme.onPrimaryContainer,
+                color: isDark ? theme.colorScheme.onPrimaryContainer : theme.colorScheme.onPrimary,
                 size: 24,
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
+            const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,7 +326,7 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: effectiveBadgeColor.withValues(alpha: 0.2),
+                      color: effectiveBadgeColor.withOpacity(0.2),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -360,7 +343,7 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
                   textAlign: TextAlign.center,
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
+              const SizedBox(width: AppSpacing.sm),
             ],
             Icon(
               Icons.chevron_right,

@@ -232,7 +232,7 @@ class _NotificationCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: _getNotificationColor(
                     notification.type,
-                  ).withValues(alpha: 0.1),
+                  ).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(AppRadius.small),
                 ),
                 child: Icon(

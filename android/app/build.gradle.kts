@@ -10,9 +10,9 @@ plugins {
 }
 
 val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
+val keystorePropertiesFile = File(rootDir, "key.properties")
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 android {
@@ -30,8 +30,6 @@ android {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
-
-
     defaultConfig {
         applicationId = "com.innovlabs.taskmanager"
         minSdk = 23
@@ -43,10 +41,17 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["storePassword"] as String
+            val alias = keystoreProperties.getProperty("keyAlias")
+            val keyPass = keystoreProperties.getProperty("keyPassword")
+            val storePass = keystoreProperties.getProperty("storePassword")
+            val storeFileProp = keystoreProperties.getProperty("storeFile")
+
+            if (alias != null && keyPass != null && storePass != null && storeFileProp != null) {
+                keyAlias = alias
+                keyPassword = keyPass
+                storePassword = storePass
+                storeFile = file(storeFileProp)
+            }
         }
     }
 

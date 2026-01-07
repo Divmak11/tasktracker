@@ -243,12 +243,12 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(
-                  alpha: 0.3,
+                color: theme.colorScheme.primaryContainer.withOpacity(
+                  0.3,
                 ),
                 borderRadius: BorderRadius.circular(AppRadius.medium),
                 border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                  color: theme.colorScheme.primary.withOpacity(0.2),
                 ),
               ),
               child: Row(
@@ -482,7 +482,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.sm),
                   decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
+                    color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(AppRadius.small),
                   ),
                   child: Icon(
@@ -518,7 +518,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
                     vertical: AppSpacing.xs,
                   ),
                   decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
+                    color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(AppRadius.small),
                   ),
                   child: Text(

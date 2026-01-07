@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import '../../presentation/auth/login_screen.dart';
+import '../../presentation/auth/email_login_screen.dart';
 import '../../presentation/auth/signup_screen.dart';
 import '../../presentation/auth/request_pending_screen.dart';
 import '../../presentation/auth/access_revoked_screen.dart';
@@ -38,8 +40,19 @@ import '../../data/providers/auth_provider.dart';
 import '../../data/models/user_model.dart';
 
 class AppRouter {
+  static final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+  static final GlobalKey<NavigatorState> _shellNavigatorHomeKey = GlobalKey<NavigatorState>(debugLabel: 'shellHome');
+  static final GlobalKey<NavigatorState> _shellNavigatorTeamsKey = GlobalKey<NavigatorState>(debugLabel: 'shellTeams');
+  static final GlobalKey<NavigatorState> _shellNavigatorSettingsKey = GlobalKey<NavigatorState>(debugLabel: 'shellSettings');
+
   static GoRouter createRouter(AuthProvider authProvider) {
+    // Initialize Analytics Observer for automatic screen tracking
+    final analytics = FirebaseAnalytics.instance;
+    final analyticsObserver = FirebaseAnalyticsObserver(analytics: analytics);
+
     return GoRouter(
+      navigatorKey: rootNavigatorKey,
+      observers: [analyticsObserver], // Track screen views automatically
       initialLocation: '/', // Start at root, will redirect based on auth state
       refreshListenable:
           authProvider, // Re-evaluate redirect on auth state changes
@@ -50,7 +63,8 @@ class AppRouter {
 
         final currentPath = state.matchedLocation;
         final isOnSplashPage = currentPath == '/';
-        final isOnLoginPage = currentPath == AppRoutes.login;
+        // Use startsWith to include /login and any sub-routes like /login/email
+        final isOnLoginPage = currentPath.startsWith(AppRoutes.login);
         final isOnEnterNamePage = currentPath == AppRoutes.enterName;
         final isOnPendingPage = currentPath == AppRoutes.requestPending;
         final isOnRevokedPage = currentPath == AppRoutes.accessRevoked;
@@ -59,8 +73,12 @@ class AppRouter {
           '🔀 Router Redirect - Path: $currentPath, Auth: $isAuthenticated, Loading: $isLoading, User: ${currentUser?.email}',
         );
 
-        // Show splash screen while loading auth state
+        // Show splash screen while loading auth state, UNLESS we are on the login page
+        // (to prevent destroying the login screen/dialog while auth is verifying)
         if (isLoading) {
+          if (isOnLoginPage) return null;
+          // If we are already authenticated but just loading data, don't flick back to splash if we're on a valid terminal route
+          if (isAuthenticated && !isOnSplashPage) return null;
           return isOnSplashPage ? null : '/';
         }
 
@@ -73,10 +91,18 @@ class AppRouter {
           return isOnLoginPage ? null : AppRoutes.login;
         }
 
-        // Authenticated but user data not loaded yet -> show splash
+        // Authenticated but user data not loaded yet -> show splash (unless already on Login)
         if (currentUser == null) {
-          debugPrint('🔀 User data not loaded, showing splash');
-          return isOnSplashPage ? null : '/';
+          debugPrint('🔀 User data not loaded');
+          // If we are already on the login page and just signed in, 
+          // stay there while data loads to avoid flickering to splash and back.
+          if (isOnLoginPage) return null;
+          
+          // If we are already authenticated but data is null (loading), 
+          // we might be transitioning. If we are not on splash/login, stay where we are.
+          if (!isOnSplashPage) return null;
+
+          return '/';
         }
 
         // Check if user needs to complete onboarding (enter name)
@@ -120,6 +146,12 @@ class AppRouter {
         GoRoute(
           path: AppRoutes.login,
           builder: (context, state) => const LoginScreen(),
+          routes: [
+            GoRoute(
+              path: 'email',
+              builder: (context, state) => const EmailLoginScreen(),
+            ),
+          ],
         ),
         GoRoute(
           path: AppRoutes.signup,
@@ -142,154 +174,172 @@ class AppRouter {
           builder: (context, state) => const EnterNameScreen(),
         ),
         // Authenticated Routes (with Bottom Navigation)
-        ShellRoute(
-          builder: (context, state, child) => MainLayout(child: child),
-          routes: [
-            GoRoute(
-              path: AppRoutes.adminDashboard,
-              builder: (context, state) => const AdminDashboardScreen(),
-            ),
-            GoRoute(
-              path: AppRoutes.teamManagement,
-              builder: (context, state) => const TeamManagementScreen(),
+        // Authenticated Routes (with Bottom Navigation) - Persistent State
+        StatefulShellRoute.indexedStack(
+          builder: (context, state, navigationShell) =>
+              MainLayout(navigationShell: navigationShell),
+          branches: [
+            // Branch 0: Dashboard & Tasks
+            StatefulShellBranch(
+              navigatorKey: _shellNavigatorHomeKey,
               routes: [
                 GoRoute(
-                  path: 'create',
-                  builder: (context, state) => const CreateTeamScreen(),
+                  path: AppRoutes.adminDashboard,
+                  builder: (context, state) => const AdminDashboardScreen(),
                 ),
                 GoRoute(
-                  path: ':id',
+                  path: AppRoutes.home,
+                  builder: (context, state) => const MemberDashboardScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'assigned-tasks',
+                      builder: (context, state) =>
+                          const FilteredTasksScreen(filterType: 'assigned'),
+                    ),
+                    GoRoute(
+                      path: 'created-tasks',
+                      builder: (context, state) =>
+                          const FilteredTasksScreen(filterType: 'created'),
+                    ),
+                    GoRoute(
+                      path: 'overdue-tasks',
+                      builder: (context, state) =>
+                          const FilteredTasksScreen(filterType: 'overdue'),
+                    ),
+                    GoRoute(
+                      path: 'completed-tasks',
+                      builder: (context, state) =>
+                          const FilteredTasksScreen(filterType: 'completed'),
+                    ),
+                  ],
+                ),
+                GoRoute(
+                  path: AppRoutes.adminMyTasks,
+                  builder: (context, state) => const HomeScreen(),
+                ),
+                GoRoute(
+                  path: AppRoutes.userApproval,
+                  builder: (context, state) => const ApprovalQueueScreen(),
+                ),
+                GoRoute(
+                  path: AppRoutes.rescheduleApproval,
+                  builder: (context, state) => const RescheduleApprovalScreen(),
+                ),
+                GoRoute(
+                  path: AppRoutes.notifications,
+                  builder: (context, state) => const NotificationCenterScreen(),
+                ),
+                GoRoute(
+                  path: '/calendar',
+                  builder: (context, state) => const CalendarViewScreen(),
+                ),
+                GoRoute(
+                  path: AppRoutes.rescheduleLog,
+                  builder: (context, state) => const RescheduleLogScreen(),
+                ),
+                GoRoute(
+                  path: '/admin/overdue-tasks',
+                  builder: (context, state) => const OverdueTasksScreen(),
+                ),
+                GoRoute(
+                  path: AppRoutes.allTasks,
+                  builder: (context, state) {
+                    final tabParam = state.uri.queryParameters['tab'];
+                    final initialTab = int.tryParse(tabParam ?? '1') ?? 1;
+                    return AllTasksScreen(initialTabIndex: initialTab);
+                  },
+                ),
+                GoRoute(
+                  path: '/admin/users/:id/tasks',
+                  builder: (context, state) {
+                    final userId = state.pathParameters['id']!;
+                    return UserTaskSummaryScreen(userId: userId);
+                  },
+                ),
+                GoRoute(
+                  path: '/task/create',
+                  builder: (context, state) => const CreateTaskScreen(),
+                ),
+                GoRoute(
+                  path: '/task/:id',
                   builder: (context, state) {
                     final id = state.pathParameters['id']!;
-                    return TeamDetailScreen(teamId: id);
+                    return TaskDetailScreen(taskId: id);
                   },
                   routes: [
                     GoRoute(
                       path: 'edit',
                       builder: (context, state) {
                         final id = state.pathParameters['id']!;
-                        return EditTeamScreen(teamId: id);
+                        return EditTaskScreen(taskId: id);
                       },
                     ),
                   ],
                 ),
               ],
             ),
-            GoRoute(
-              path: AppRoutes.settings,
-              builder: (context, state) => const SettingsScreen(),
+            // Branch 1: Teams
+            StatefulShellBranch(
+              navigatorKey: _shellNavigatorTeamsKey,
               routes: [
                 GoRoute(
-                  path: 'theme',
-                  builder: (context, state) => const ThemeSelectorScreen(),
+                  path: AppRoutes.teamManagement,
+                  builder: (context, state) => const TeamManagementScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'create',
+                      builder: (context, state) => const CreateTeamScreen(),
+                    ),
+                    GoRoute(
+                      path: ':id',
+                      builder: (context, state) {
+                        final id = state.pathParameters['id']!;
+                        return TeamDetailScreen(teamId: id);
+                      },
+                      routes: [
+                        GoRoute(
+                          path: 'edit',
+                          builder: (context, state) {
+                            final id = state.pathParameters['id']!;
+                            return EditTeamScreen(teamId: id);
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
                 GoRoute(
-                  path: 'profile',
-                  builder: (context, state) => const ProfileEditScreen(),
+                  path: AppRoutes.userManagement,
+                  builder: (context, state) => const UserManagementScreen(),
                 ),
                 GoRoute(
-                  path: 'notifications',
-                  builder:
-                      (context, state) => const NotificationPreferencesScreen(),
+                  path: AppRoutes.inviteUsers,
+                  builder: (context, state) => const InviteUsersScreen(),
                 ),
               ],
             ),
-            GoRoute(
-              path: AppRoutes.userApproval,
-              builder: (context, state) => const ApprovalQueueScreen(),
-            ),
-            GoRoute(
-              path: AppRoutes.userManagement,
-              builder: (context, state) => const UserManagementScreen(),
-            ),
-            GoRoute(
-              path: AppRoutes.rescheduleLog,
-              builder: (context, state) => const RescheduleLogScreen(),
-            ),
-            GoRoute(
-              path: '/admin/overdue-tasks',
-              builder: (context, state) => const OverdueTasksScreen(),
-            ),
-            GoRoute(
-              path: AppRoutes.allTasks,
-              builder: (context, state) {
-                // Support ?tab=0|1|2|3 to set initial tab (default: 1=Ongoing)
-                final tabParam = state.uri.queryParameters['tab'];
-                final initialTab = int.tryParse(tabParam ?? '1') ?? 1;
-                return AllTasksScreen(initialTabIndex: initialTab);
-              },
-            ),
-            GoRoute(
-              path: AppRoutes.inviteUsers,
-              builder: (context, state) => const InviteUsersScreen(),
-            ),
-            GoRoute(
-              path: '/admin/users/:id/tasks',
-              builder: (context, state) {
-                final userId = state.pathParameters['id']!;
-                return UserTaskSummaryScreen(userId: userId);
-              },
-            ),
-            GoRoute(
-              path: AppRoutes.adminMyTasks,
-              builder: (context, state) => const HomeScreen(),
-            ),
-            GoRoute(
-              path: AppRoutes.rescheduleApproval,
-              builder: (context, state) => const RescheduleApprovalScreen(),
-            ),
-            GoRoute(
-              path: AppRoutes.notifications,
-              builder: (context, state) => const NotificationCenterScreen(),
-            ),
-            GoRoute(
-              path: '/calendar',
-              builder: (context, state) => const CalendarViewScreen(),
-            ),
-            // Member Home (Alternative to Admin Dashboard)
-            GoRoute(
-              path: AppRoutes.home,
-              builder: (context, state) => const MemberDashboardScreen(),
+            // Branch 2: Settings
+            StatefulShellBranch(
+              navigatorKey: _shellNavigatorSettingsKey,
               routes: [
                 GoRoute(
-                  path: 'assigned-tasks',
-                  builder: (context, state) =>
-                      const FilteredTasksScreen(filterType: 'assigned'),
-                ),
-                GoRoute(
-                  path: 'created-tasks',
-                  builder: (context, state) =>
-                      const FilteredTasksScreen(filterType: 'created'),
-                ),
-                GoRoute(
-                  path: 'overdue-tasks',
-                  builder: (context, state) =>
-                      const FilteredTasksScreen(filterType: 'overdue'),
-                ),
-                GoRoute(
-                  path: 'completed-tasks',
-                  builder: (context, state) =>
-                      const FilteredTasksScreen(filterType: 'completed'),
-                ),
-              ],
-            ),
-            GoRoute(
-              path: '/task/create',
-              builder: (context, state) => const CreateTaskScreen(),
-            ),
-            GoRoute(
-              path: '/task/:id',
-              builder: (context, state) {
-                final id = state.pathParameters['id']!;
-                return TaskDetailScreen(taskId: id);
-              },
-              routes: [
-                GoRoute(
-                  path: 'edit',
-                  builder: (context, state) {
-                    final id = state.pathParameters['id']!;
-                    return EditTaskScreen(taskId: id);
-                  },
+                  path: AppRoutes.settings,
+                  builder: (context, state) => const SettingsScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'theme',
+                      builder: (context, state) => const ThemeSelectorScreen(),
+                    ),
+                    GoRoute(
+                      path: 'profile',
+                      builder: (context, state) => const ProfileEditScreen(),
+                    ),
+                    GoRoute(
+                      path: 'notifications',
+                      builder: (context, state) =>
+                          const NotificationPreferencesScreen(),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -18,6 +18,51 @@ enum CalendarRefreshResult {
   reconnectNeeded,
 }
 
+/// Result of calendar connection operation with specific failure reasons
+enum CalendarConnectResult {
+  /// Connection successful - calendar is now connected and verified
+  success,
+
+  /// User cancelled the sign-in dialog (pressed back or cancelled)
+  userCancelled,
+
+  /// Google sign-in failed (could be network, configuration, etc.)
+  signInFailed,
+
+  /// No server auth code received (configuration issue with webClientId)
+  noServerAuthCode,
+
+  /// Backend token exchange failed
+  backendExchangeFailed,
+
+  /// Backend verification failed - tokens don't actually work
+  verificationFailed,
+
+  /// Network error during connection
+  networkError,
+
+  /// Unknown error occurred
+  unknownError,
+}
+
+/// Result of calendar disconnection operation
+enum CalendarDisconnectResult {
+  /// Disconnection successful - calendar is now disconnected
+  success,
+
+  /// Already disconnected - no action needed
+  alreadyDisconnected,
+
+  /// Local sign-out failed
+  localSignOutFailed,
+
+  /// Backend disconnect failed but local state was cleared
+  backendFailed,
+
+  /// Network error during disconnection
+  networkError,
+}
+
 /// Google Calendar integration service
 ///
 /// Uses Server Auth Code flow for proper token management:
@@ -138,20 +183,42 @@ class CalendarService {
   ///
   /// This flow ensures the backend gets a REAL refresh_token that can be used
   /// to refresh access tokens automatically, even when the app is closed.
-  Future<bool> connect(String userId) async {
+  ///
+  /// IMPORTANT: This method now waits for backend verification before returning
+  /// success. It does NOT fall back to local tokens as that was causing false
+  /// positive "connected" status.
+  ///
+  /// Returns a [CalendarConnectResult] with specific failure reason if failed.
+  Future<CalendarConnectResult> connect(String userId) async {
     debugPrint('📅 [CALENDAR] [CONNECT] Starting for user=$userId');
     debugPrint('📅 [CALENDAR] [CONNECT] Using webClientId=$_webClientId');
 
     try {
       // Sign in with Google (will prompt for Calendar permission)
       debugPrint('📅 [CALENDAR] [CONNECT] Initiating GoogleSignIn...');
-      _currentAccount = await _googleSignIn.signIn();
 
-      if (_currentAccount == null) {
-        debugPrint('❌ [CALENDAR] [CONNECT] User cancelled sign-in');
-        return false;
+      GoogleSignInAccount? account;
+      try {
+        account = await _googleSignIn.signIn();
+      } catch (signInError) {
+        debugPrint(
+          '❌ [CALENDAR] [CONNECT] GoogleSignIn threw error: $signInError',
+        );
+        // Check if it's a network error
+        if (signInError.toString().contains('network') ||
+            signInError.toString().contains('SocketException') ||
+            signInError.toString().contains('Failed host lookup')) {
+          return CalendarConnectResult.networkError;
+        }
+        return CalendarConnectResult.signInFailed;
       }
 
+      if (account == null) {
+        debugPrint('❌ [CALENDAR] [CONNECT] User cancelled sign-in');
+        return CalendarConnectResult.userCancelled;
+      }
+
+      _currentAccount = account;
       debugPrint('📅 [CALENDAR] [CONNECT] GoogleSignIn SUCCESS');
       debugPrint('📅 [CALENDAR] [CONNECT] email=${_currentAccount!.email}');
       debugPrint(
@@ -177,86 +244,173 @@ class CalendarService {
 
       // SERVER AUTH CODE FLOW:
       // If we have a serverAuthCode, send it to backend for proper token exchange
-      // This is the key to getting a REAL refresh_token
+      // This is the ONLY path that properly sets googleCalendarConnected = true
       final serverAuthCode = _currentAccount!.serverAuthCode;
 
-      if (serverAuthCode != null && serverAuthCode.isNotEmpty) {
+      if (serverAuthCode == null || serverAuthCode.isEmpty) {
+        // No serverAuthCode received - this is a configuration issue
         debugPrint(
-          '📅 [CALENDAR] [CONNECT] Got serverAuthCode '
-          '(length=${serverAuthCode.length})',
-        );
-        debugPrint(
-          '📅 [CALENDAR] [CONNECT] Calling backend exchangeCalendarAuthCode...',
-        );
-
-        try {
-          final result = await _cloudFunctions.exchangeCalendarAuthCode(
-            serverAuthCode,
-          );
-          final hasRefreshToken = result['hasRefreshToken'] == true;
-          debugPrint(
-            '✅ [CALENDAR] [CONNECT] Backend token exchange SUCCESS '
-            'hasRefreshToken=$hasRefreshToken',
-          );
-        } catch (e) {
-          // Log but don't fail - we can still use local tokens
-          debugPrint('⚠️ [CALENDAR] [CONNECT] Backend exchange FAILED: $e');
-          debugPrint('📅 [CALENDAR] [CONNECT] Falling back to local tokens...');
-          await _saveLocalTokens(userId, auth.accessToken);
-        }
-      } else {
-        // No serverAuthCode received (rare edge case)
-        debugPrint(
-          '⚠️ [CALENDAR] [CONNECT] No serverAuthCode received! '
+          '❌ [CALENDAR] [CONNECT] No serverAuthCode received! '
           'Check if webClientId is correct.',
         );
-        await _saveLocalTokens(userId, auth.accessToken);
+        // Clean up partial state
+        _calendarApi = null;
+        return CalendarConnectResult.noServerAuthCode;
+      }
+
+      debugPrint(
+        '📅 [CALENDAR] [CONNECT] Got serverAuthCode '
+        '(length=${serverAuthCode.length})',
+      );
+      debugPrint(
+        '📅 [CALENDAR] [CONNECT] Calling backend exchangeCalendarAuthCode...',
+      );
+
+      // CRITICAL: Wait for backend to exchange AND verify the tokens
+      // The backend now verifies the token works before setting connected=true
+      try {
+        final result = await _cloudFunctions.exchangeCalendarAuthCode(
+          serverAuthCode,
+        );
+
+        // Check the backend response
+        final success = result['success'] == true;
+        final hasRefreshToken = result['hasRefreshToken'] == true;
+
+        if (!success) {
+          final errorMessage = result['message'] as String? ?? 'Unknown error';
+          debugPrint(
+            '❌ [CALENDAR] [CONNECT] Backend returned failure: $errorMessage',
+          );
+
+          // Clean up partial state
+          _calendarApi = null;
+
+          // Check if it's a verification failure
+          if (errorMessage.contains('verification failed')) {
+            return CalendarConnectResult.verificationFailed;
+          }
+          return CalendarConnectResult.backendExchangeFailed;
+        }
+
+        debugPrint(
+          '✅ [CALENDAR] [CONNECT] Backend token exchange AND verification SUCCESS '
+          'hasRefreshToken=$hasRefreshToken',
+        );
+      } catch (e) {
+        debugPrint('❌ [CALENDAR] [CONNECT] Backend exchange FAILED: $e');
+
+        // Clean up partial state - don't leave calendar API initialized
+        // when connection actually failed
+        _calendarApi = null;
+        _currentAccount = null;
+
+        // Parse error message for specific failure reason
+        final errorStr = e.toString().toLowerCase();
+        if (errorStr.contains('network') ||
+            errorStr.contains('socket') ||
+            errorStr.contains('timeout')) {
+          return CalendarConnectResult.networkError;
+        }
+        if (errorStr.contains('verification')) {
+          return CalendarConnectResult.verificationFailed;
+        }
+        return CalendarConnectResult.backendExchangeFailed;
       }
 
       debugPrint('✅ [CALENDAR] [CONNECT] COMPLETE for user=$userId');
-      return true;
+      return CalendarConnectResult.success;
     } catch (e, stackTrace) {
       debugPrint('❌ [CALENDAR] [CONNECT] FAILED: $e');
       debugPrint('❌ [CALENDAR] [CONNECT] StackTrace: $stackTrace');
-      return false;
+
+      // Clean up any partial state
+      _calendarApi = null;
+      _currentAccount = null;
+
+      return CalendarConnectResult.unknownError;
     }
   }
 
-  /// Save tokens locally when serverAuthCode flow is not available
-  Future<void> _saveLocalTokens(String userId, String? accessToken) async {
-    if (accessToken == null) return;
-
-    await _firestore.collection('users').doc(userId).update({
-      'googleCalendarConnected': true,
-      'googleAccessToken': accessToken,
-    });
-    debugPrint('📅 Calendar: Saved local access token for user $userId');
-  }
-
   /// Disconnect from Google Calendar via Cloud Function
-  Future<void> disconnect(String userId) async {
+  ///
+  /// IMPORTANT: This method calls backend FIRST to ensure cleanup happens while
+  /// tokens are still valid. Local sign-out happens only after backend confirms.
+  ///
+  /// Returns a [CalendarDisconnectResult] with specific status.
+  Future<CalendarDisconnectResult> disconnect(String userId) async {
     debugPrint('📅 [CALENDAR] [DISCONNECT] Starting for user=$userId');
 
     try {
-      // Sign out locally first
+      // Call Cloud Function FIRST to delete calendar events and set flag to false
+      // This must happen before local sign-out so tokens are still valid for cleanup
+      debugPrint(
+        '📅 [CALENDAR] [DISCONNECT] Calling backend to disconnect...',
+      );
+
+      try {
+        final result = await _cloudFunctions.disconnectCalendar();
+        final success = result['success'] == true;
+        final message = result['message'] as String? ?? '';
+
+        if (!success) {
+          debugPrint('❌ [CALENDAR] [DISCONNECT] Backend returned failure');
+          return CalendarDisconnectResult.backendFailed;
+        }
+
+        // Check if it was already disconnected
+        if (message.contains('already disconnected')) {
+          debugPrint('ℹ️ [CALENDAR] [DISCONNECT] Was already disconnected');
+          // Still clean up local state
+          _currentAccount = null;
+          _calendarApi = null;
+          try {
+            await _googleSignIn.signOut();
+          } catch (_) {}
+          return CalendarDisconnectResult.alreadyDisconnected;
+        }
+
+        debugPrint('✅ [CALENDAR] [DISCONNECT] Backend confirmed disconnection');
+      } catch (backendError) {
+        debugPrint(
+          '❌ [CALENDAR] [DISCONNECT] Backend call failed: $backendError',
+        );
+
+        // Check error type
+        final errorStr = backendError.toString().toLowerCase();
+        if (errorStr.contains('network') ||
+            errorStr.contains('socket') ||
+            errorStr.contains('timeout')) {
+          return CalendarDisconnectResult.networkError;
+        }
+
+        return CalendarDisconnectResult.backendFailed;
+      }
+
+      // Only sign out locally AFTER backend confirms success
       debugPrint('📅 [CALENDAR] [DISCONNECT] Signing out locally...');
-      await _googleSignIn.signOut();
+      try {
+        await _googleSignIn.signOut();
+      } catch (signOutError) {
+        // Log but don't fail - backend already confirmed disconnection
+        debugPrint(
+          '⚠️ [CALENDAR] [DISCONNECT] Local sign-out failed: $signOutError',
+        );
+      }
+
       _currentAccount = null;
       _calendarApi = null;
-
-      // Call Cloud Function to delete calendar events and clear tokens
-      debugPrint(
-        '📅 [CALENDAR] [DISCONNECT] Calling backend to delete events...',
-      );
-      final cloudFunctions = CloudFunctionsService();
-      await cloudFunctions.disconnectCalendar();
 
       debugPrint('✅ [CALENDAR] [DISCONNECT] SUCCESS for user=$userId');
+      return CalendarDisconnectResult.success;
     } catch (e) {
       debugPrint('❌ [CALENDAR] [DISCONNECT] FAILED: $e');
-      // Still update local state even if cloud function fails
+
+      // Ensure local state is cleared even on error
       _currentAccount = null;
       _calendarApi = null;
+
+      return CalendarDisconnectResult.backendFailed;
     }
   }
 

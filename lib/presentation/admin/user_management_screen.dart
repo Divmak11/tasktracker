@@ -659,7 +659,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withValues(alpha: 0.2),
+                            color: Colors.blue.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -681,7 +681,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withValues(alpha: 0.2),
+                            color: Colors.orange.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -793,7 +793,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: roleConfig['color'].withValues(alpha: 0.15),
+        color: roleConfig['color'].withOpacity(0.15),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(

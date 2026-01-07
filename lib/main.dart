@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,6 +15,7 @@ import 'core/constants/env_config.dart';
 import 'core/router/app_router.dart';
 import 'data/providers/auth_provider.dart';
 import 'data/providers/theme_provider.dart';
+import 'data/providers/data_cache_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,6 +36,26 @@ void main() async {
 
   // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Initialize Firebase Analytics
+  final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
+  
+  // Enable Analytics collection (it's enabled by default, but this ensures it)
+  await analytics.setAnalyticsCollectionEnabled(true);
+  
+  // Log app start event
+  await analytics.logAppOpen();
+  
+  // Log a test event to verify configuration
+  await analytics.logEvent(
+    name: 'analytics_config_verified',
+    parameters: {'timestamp': DateTime.now().toIso8601String()},
+  );
+  
+  debugPrint('✅ Firebase Analytics initialized and test event logged');
+  if (!EnvConfig.isProduction) {
+    debugPrint('📊 Analytics Instance ID: ${analytics.app.name}');
+  }
 
   // Note: Firebase Auth persistence is automatically enabled on mobile platforms
   // setPersistence() is only supported on web and will throw UnimplementedError on mobile
@@ -96,12 +118,18 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final AuthProvider _authProvider;
+  late final DataCacheProvider _dataCacheProvider;
   late final GoRouter _router;
+  late final FirebaseAnalytics _analytics;
+  late final FirebaseAnalyticsObserver _analyticsObserver;
 
   @override
   void initState() {
     super.initState();
     _authProvider = AuthProvider();
+    _dataCacheProvider = DataCacheProvider();
+    _analytics = FirebaseAnalytics.instance;
+    _analyticsObserver = FirebaseAnalyticsObserver(analytics: _analytics);
     _router = AppRouter.createRouter(_authProvider);
   }
 
@@ -111,6 +139,7 @@ class _MyAppState extends State<MyApp> {
       providers: [
         ChangeNotifierProvider.value(value: _authProvider),
         ChangeNotifierProvider.value(value: widget.themeProvider),
+        ChangeNotifierProvider.value(value: _dataCacheProvider),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
@@ -121,6 +150,8 @@ class _MyAppState extends State<MyApp> {
             themeMode: themeProvider.effectiveThemeMode,
             routerConfig: _router,
             debugShowCheckedModeBanner: false,
+            // Note: GoRouter handles analytics via routerConfig observers internally
+            // The observer is configured in AppRouter.createRouter()
           );
         },
       ),
