@@ -361,12 +361,9 @@ class CalendarService {
         // Check if it was already disconnected
         if (message.contains('already disconnected')) {
           debugPrint('ℹ️ [CALENDAR] [DISCONNECT] Was already disconnected');
-          // Still clean up local state
+          // Clean up local calendar state only (don't sign out of Google)
           _currentAccount = null;
           _calendarApi = null;
-          try {
-            await _googleSignIn.signOut();
-          } catch (_) {}
           return CalendarDisconnectResult.alreadyDisconnected;
         }
 
@@ -375,29 +372,31 @@ class CalendarService {
         debugPrint(
           '❌ [CALENDAR] [DISCONNECT] Backend call failed: $backendError',
         );
+        debugPrint('❌ [CALENDAR] [DISCONNECT] Error type: ${backendError.runtimeType}');
 
-        // Check error type
+        // Check for timeout specifically
+        if (backendError is CloudFunctionTimeoutException) {
+          debugPrint('⏱️ [CALENDAR] [DISCONNECT] Function timed out after ${(backendError as CloudFunctionTimeoutException).timeout.inSeconds}s');
+          // Timeout means operation might still be running
+          // For disconnect, this is usually okay - backend will complete eventually
+          // But we should tell user differently than network error
+          return CalendarDisconnectResult.networkError; // TODO: Add timeout-specific result
+        }
+
+        // Check for actual network errors
         final errorStr = backendError.toString().toLowerCase();
         if (errorStr.contains('network') ||
             errorStr.contains('socket') ||
-            errorStr.contains('timeout')) {
+            errorStr.contains('failed host lookup')) {
           return CalendarDisconnectResult.networkError;
         }
 
         return CalendarDisconnectResult.backendFailed;
       }
 
-      // Only sign out locally AFTER backend confirms success
-      debugPrint('📅 [CALENDAR] [DISCONNECT] Signing out locally...');
-      try {
-        await _googleSignIn.signOut();
-      } catch (signOutError) {
-        // Log but don't fail - backend already confirmed disconnection
-        debugPrint(
-          '⚠️ [CALENDAR] [DISCONNECT] Local sign-out failed: $signOutError',
-        );
-      }
-
+      // Clear local calendar state (backend already revoked tokens)
+      // DON'T sign out of Google - that would log user out of the entire app!
+      debugPrint('📅 [CALENDAR] [DISCONNECT] Clearing local calendar state...');
       _currentAccount = null;
       _calendarApi = null;
 

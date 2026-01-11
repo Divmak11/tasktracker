@@ -16,6 +16,8 @@ import 'core/router/app_router.dart';
 import 'data/providers/auth_provider.dart';
 import 'data/providers/theme_provider.dart';
 import 'data/providers/data_cache_provider.dart';
+import 'data/services/update_check_service.dart';
+import 'presentation/common/dialogs/update_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,6 +96,20 @@ void main() async {
 
   debugPrint('✅ Android notification channel created with sound enabled');
 
+  // Initialize and check for app updates
+  // This runs in the background without blocking app launch
+  Future.microtask(() async {
+    try {
+      final updateService = UpdateCheckService();
+      await updateService.initialize();
+      // Check will be triggered on first app screen (delegated to app)
+      debugPrint('✅ Update check service initialized');
+    } catch (e) {
+      debugPrint('⚠️ Failed to initialize update service: $e');
+      // Continue with app launch even if update check fails
+    }
+  });
+
   // Initialize Theme
   final themeProvider = ThemeProvider();
   try {
@@ -131,6 +147,78 @@ class _MyAppState extends State<MyApp> {
     _analytics = FirebaseAnalytics.instance;
     _analyticsObserver = FirebaseAnalyticsObserver(analytics: _analytics);
     _router = AppRouter.createRouter(_authProvider);
+    
+    // Check for app updates after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdates();
+    });
+  }
+
+  /// Check for app updates and show dialog if needed
+  Future<void> _checkForUpdates() async {
+    try {
+      final updateService = UpdateCheckService();
+      final updateInfo = await updateService.checkForUpdates();
+      
+      if (updateInfo != null && mounted) {
+        // Show appropriate dialog based on update type
+        if (updateInfo.isForced) {
+          _showForcedUpdateDialog(updateInfo);
+        } else {
+          _showOptionalUpdateDialog(updateInfo);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️ Error checking for updates in MyApp: $e');
+      }
+      // Silently fail - don't disrupt user experience
+    }
+  }
+
+  /// Show forced update dialog (non-dismissible)
+  void _showForcedUpdateDialog(UpdateInfo updateInfo) {
+    UpdateDialog.showForcedUpdate(
+      context: context,
+      title: updateInfo.title,
+      message: updateInfo.message,
+      onUpdate: () async {
+        final success = await UpdateCheckService().openStore();
+        if (!success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to open store. Please update manually.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+    );
+  }
+
+  /// Show optional update dialog (dismissible)
+  void _showOptionalUpdateDialog(UpdateInfo updateInfo) {
+    UpdateDialog.showOptionalUpdate(
+      context: context,
+      title: updateInfo.title,
+      message: updateInfo.message,
+      onUpdate: () async {
+        Navigator.of(context).pop(); // Close dialog first
+        final success = await UpdateCheckService().openStore();
+        if (!success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to open store. Please update manually.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+      onDismiss: () {
+        Navigator.of(context).pop();
+        UpdateCheckService().dismissOptionalUpdate(updateInfo.latestVersion);
+      },
+    );
   }
 
   @override

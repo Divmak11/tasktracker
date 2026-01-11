@@ -43,6 +43,7 @@ dependencies:
   firebase_messaging: ^15.1.6
   firebase_storage: ^12.3.8
   cloud_functions: ^5.2.3
+  firebase_remote_config: ^5.1.5  # App update version control
   
   # Google Sign-In & APIs
   google_sign_in: ^6.2.2
@@ -63,6 +64,7 @@ dependencies:
   permission_handler: ^11.3.0
   path_provider: ^2.1.4
   share_plus: ^10.1.2
+  package_info_plus: ^8.1.2  # Get app version for update checks
   
   # UI Components
   flutter_svg: ^2.0.16
@@ -86,6 +88,9 @@ dependencies:
   
   # Timezone (required for notifications)
   timezone: ^0.9.4
+  
+  # Voice Input (Speech Recognition)
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:

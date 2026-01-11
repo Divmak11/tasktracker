@@ -66,5 +66,10 @@
 	<string>This app needs access to your photo library to set your profile picture.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs access to the camera to take photos for your profile picture.</string>
+	<!-- Voice Input Permissions -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs microphone access to enable voice typing for task creation.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This app needs speech recognition to convert your voice to text for task titles and descriptions.</string>
 </dict>
 </plist>
