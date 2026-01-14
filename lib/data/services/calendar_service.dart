@@ -194,8 +194,40 @@ class CalendarService {
     debugPrint('📅 [CALENDAR] [CONNECT] Using webClientId=$_webClientId');
 
     try {
-      // Sign in with Google (will prompt for Calendar permission)
-      debugPrint('📅 [CALENDAR] [CONNECT] Initiating GoogleSignIn...');
+      // SMART RECONNECT: Try to use existing backend tokens first
+      // This avoids showing the Google Sign-In dialog for returning users
+      debugPrint('📅 [CALENDAR] [CONNECT] Attempting Smart Reconnect...');
+      try {
+        final reconnectResult = await _cloudFunctions.reconnectCalendar();
+        if (reconnectResult['success'] == true) {
+          debugPrint('✅ [CALENDAR] [CONNECT] Smart Reconnect SUCCESS!');
+          
+          // Restore local session silently to match backend state
+          try {
+            _currentAccount = await _googleSignIn.signInSilently();
+            if (_currentAccount != null) {
+              debugPrint('✅ [CALENDAR] [CONNECT] Local session restored');
+              final auth = await _currentAccount!.authentication;
+              final authenticatedClient = _GoogleAuthClient(await _currentAccount!.authHeaders);
+              _calendarApi = calendar.CalendarApi(authenticatedClient);
+              return CalendarConnectResult.success;
+            }
+          } catch (e) {
+            debugPrint('⚠️ [CALENDAR] [CONNECT] Local restore failed, but backend is connected: $e');
+            // We can still return success because the backend connection is what matters for sync
+            return CalendarConnectResult.success;
+          }
+        } else {
+           debugPrint('ℹ️ [CALENDAR] [CONNECT] Smart Reconnect failed/expired. proceeding to full sign-in.');
+        }
+      } catch (e) {
+         debugPrint('⚠️ [CALENDAR] [CONNECT] Smart Reconnect error (ignoring): $e');
+         // Fall through to full sign-in
+      }
+
+      // FULL SIGN-IN FLOW:
+      // If we reach here, either we have no tokens or they are invalid
+      debugPrint('📅 [CALENDAR] [CONNECT] Initiating full GoogleSignIn...');
 
       GoogleSignInAccount? account;
       try {

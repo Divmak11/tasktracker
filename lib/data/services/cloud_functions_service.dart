@@ -442,4 +442,16 @@ class CloudFunctionsService {
       return Map<String, dynamic>.from(result.data);
     }, 'exchangeCalendarAuthCode', timeout: const Duration(seconds: 45));
   }
+
+  /// Reconnect Google Calendar using existing tokens (Smart Reconnect).
+  ///
+  /// This attempts to reuse the refresh token stored in the backend
+  /// to avoid forcing the user through the Google Sign-In dialog again.
+  Future<Map<String, dynamic>> reconnectCalendar() async {
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('reconnectCalendar');
+      final result = await callable.call();
+      return Map<String, dynamic>.from(result.data);
+    }, 'reconnectCalendar', timeout: const Duration(seconds: 45));
+  }
 }
