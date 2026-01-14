@@ -292,6 +292,18 @@ class _SettingsScreenState extends State<SettingsScreen>
             );
             break;
 
+          case CalendarConnectResult.accessRevoked:
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Calendar access was revoked. Please logout and login again to reconnect.',
+                ),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
+              ),
+            );
+            break;
+
           case CalendarConnectResult.unknownError:
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(

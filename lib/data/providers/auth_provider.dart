@@ -7,6 +7,7 @@ import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/fcm_service.dart';
+import '../services/calendar_service.dart';
 
 class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   final AuthRepository _authRepository;
@@ -17,6 +18,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   firebase_auth.User? _firebaseUser; // Track Firebase auth state separately
   bool _isLoading = true; // Start as true to show splash while checking auth
   bool _isInitialLoad = true; // Separate flag for initial bootstrap
+  bool _calendarVerifiedThisSession = false; // Prevent repeated verification calls
   StreamSubscription? _authStateSubscription;
   StreamSubscription? _userDataSubscription;
 
@@ -207,6 +209,22 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
                 _fcmService.initialize(userId);
               }
 
+              // Proactively verify calendar connection if user has it enabled
+              // This detects if access was revoked while user was logged out
+              // Only verify ONCE per session to avoid infinite loop
+              if (user?.googleCalendarConnected == true && !_calendarVerifiedThisSession) {
+                _calendarVerifiedThisSession = true;
+                CalendarService().verifyConnectionStatus().then((isValid) {
+                  if (!isValid) {
+                    debugPrint('⚠️ Calendar connection was invalidated, refreshing user data...');
+                    // Backend already set googleCalendarConnected = false
+                    // The stream will automatically update with the new value
+                  }
+                }).catchError((e) {
+                  debugPrint('❌ Calendar verification error: $e');
+                });
+              }
+
               notifyListeners();
             },
             onError: (error) {
@@ -338,9 +356,11 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     _firebaseUser = null;
     _currentUser = null;
     _isLoading = false;
+    _calendarVerifiedThisSession = false; // Reset so we verify again on next login
     _userDataSubscription?.cancel();
     _userDataSubscription = null;
     _fcmService.reset(); // Reset FCM state on logout
+    CalendarService().reset(); // Reset calendar state on logout
     notifyListeners();
   }
 

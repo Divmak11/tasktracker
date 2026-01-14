@@ -41,6 +41,9 @@ enum CalendarConnectResult {
   /// Network error during connection
   networkError,
 
+  /// Access was revoked - user needs to logout and login again
+  accessRevoked,
+
   /// Unknown error occurred
   unknownError,
 }
@@ -99,6 +102,75 @@ class CalendarService {
 
   /// Check if calendar is connected
   bool get isConnected => _calendarApi != null;
+
+  /// Resets all local calendar state. Call this on logout to prevent
+  /// stale sessions from being used by a different user.
+  /// 
+  /// NOTE: This does NOT call disconnect() because that would force
+  /// consent screen even for users who haven't revoked access.
+  Future<void> reset() async {
+    debugPrint('📅 [CALENDAR] [RESET] Clearing local state...');
+    _currentAccount = null;
+    _calendarApi = null;
+    
+    // Sign out of Google to clear the session
+    try {
+      await _googleSignIn.signOut();
+      debugPrint('📅 [CALENDAR] [RESET] Google session signed out');
+    } catch (e) {
+      debugPrint('⚠️ [CALENDAR] [RESET] signOut error (ignoring): $e');
+    }
+    
+    // Nullify the GoogleSignIn instance so a fresh one is created next time
+    _googleSignInInstance = null;
+    debugPrint('📅 [CALENDAR] [RESET] Complete');
+  }
+
+  /// Clears stale session aggressively. Call this when we detect
+  /// that the user's access has been revoked externally.
+  /// 
+  /// This uses disconnect() which revokes tokens at OS level,
+  /// ensuring a completely fresh session on next attempt.
+  Future<void> clearStaleSession() async {
+    debugPrint('📅 [CALENDAR] [CLEAR_STALE] Clearing stale session aggressively...');
+    _currentAccount = null;
+    _calendarApi = null;
+    
+    try {
+      // disconnect() is more aggressive than signOut() - it revokes OS-level tokens
+      await _googleSignIn.disconnect();
+      debugPrint('📅 [CALENDAR] [CLEAR_STALE] Disconnected from Google');
+    } catch (e) {
+      debugPrint('⚠️ [CALENDAR] [CLEAR_STALE] disconnect error (ignoring): $e');
+    }
+    
+    // Nullify instance to force fresh creation
+    _googleSignInInstance = null;
+    debugPrint('📅 [CALENDAR] [CLEAR_STALE] Complete');
+  }
+
+  /// Verifies if the current calendar connection is still valid.
+  /// Call this on app startup/login if user has googleCalendarConnected = true.
+  /// 
+  /// Returns true if connection is valid, false if it needs reconnection.
+  /// If invalid, backend automatically sets googleCalendarConnected = false.
+  Future<bool> verifyConnectionStatus() async {
+    debugPrint('📅 [CALENDAR] [VERIFY] Verifying connection status...');
+    try {
+      final result = await _cloudFunctions.reconnectCalendar();
+      if (result['success'] == true) {
+        debugPrint('✅ [CALENDAR] [VERIFY] Connection is valid');
+        return true;
+      } else {
+        debugPrint('⚠️ [CALENDAR] [VERIFY] Connection invalid, requiresReauth=${result['requiresReauth']}');
+        // Backend already set googleCalendarConnected = false
+        return false;
+      }
+    } catch (e) {
+      debugPrint('❌ [CALENDAR] [VERIFY] Error: $e');
+      return false;
+    }
+  }
 
   /// Refresh and persist latest Google access token if user already connected.
   ///
@@ -197,6 +269,7 @@ class CalendarService {
       // SMART RECONNECT: Try to use existing backend tokens first
       // This avoids showing the Google Sign-In dialog for returning users
       debugPrint('📅 [CALENDAR] [CONNECT] Attempting Smart Reconnect...');
+      bool requiresReauth = false;
       try {
         final reconnectResult = await _cloudFunctions.reconnectCalendar();
         if (reconnectResult['success'] == true) {
@@ -207,7 +280,6 @@ class CalendarService {
             _currentAccount = await _googleSignIn.signInSilently();
             if (_currentAccount != null) {
               debugPrint('✅ [CALENDAR] [CONNECT] Local session restored');
-              final auth = await _currentAccount!.authentication;
               final authenticatedClient = _GoogleAuthClient(await _currentAccount!.authHeaders);
               _calendarApi = calendar.CalendarApi(authenticatedClient);
               return CalendarConnectResult.success;
@@ -218,7 +290,8 @@ class CalendarService {
             return CalendarConnectResult.success;
           }
         } else {
-           debugPrint('ℹ️ [CALENDAR] [CONNECT] Smart Reconnect failed/expired. proceeding to full sign-in.');
+          requiresReauth = reconnectResult['requiresReauth'] == true;
+          debugPrint('ℹ️ [CALENDAR] [CONNECT] Smart Reconnect failed. requiresReauth=$requiresReauth');
         }
       } catch (e) {
          debugPrint('⚠️ [CALENDAR] [CONNECT] Smart Reconnect error (ignoring): $e');
@@ -227,11 +300,21 @@ class CalendarService {
 
       // FULL SIGN-IN FLOW:
       // If we reach here, either we have no tokens or they are invalid
-      debugPrint('📅 [CALENDAR] [CONNECT] Initiating full GoogleSignIn...');
+      // Note: We no longer call signOut() here because if auth code is expired/revoked,
+      // we catch that error from backend and return accessRevoked for user to re-login.
+      
+      // Try silent sign-in first to avoid showing account picker
+      debugPrint('📅 [CALENDAR] [CONNECT] Trying signInSilently first...');
 
       GoogleSignInAccount? account;
       try {
-        account = await _googleSignIn.signIn();
+        account = await _googleSignIn.signInSilently();
+        if (account != null) {
+          debugPrint('✅ [CALENDAR] [CONNECT] signInSilently SUCCESS');
+        } else {
+          debugPrint('ℹ️ [CALENDAR] [CONNECT] signInSilently returned null, showing dialog...');
+          account = await _googleSignIn.signIn();
+        }
       } catch (signInError) {
         debugPrint(
           '❌ [CALENDAR] [CONNECT] GoogleSignIn threw error: $signInError',
@@ -339,6 +422,16 @@ class CalendarService {
 
         // Parse error message for specific failure reason
         final errorStr = e.toString().toLowerCase();
+        
+        // CRITICAL: If auth code is expired/already used, user needs to logout and login again
+        // This happens when user revoked access in Google Settings
+        if (errorStr.contains('expired') || errorStr.contains('already used')) {
+          debugPrint('⚠️ [CALENDAR] [CONNECT] Auth code expired - clearing stale session');
+          // Clear the stale session so next login attempt gets fresh credentials
+          await clearStaleSession();
+          return CalendarConnectResult.accessRevoked;
+        }
+        
         if (errorStr.contains('network') ||
             errorStr.contains('socket') ||
             errorStr.contains('timeout')) {
