@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
@@ -275,20 +276,24 @@ class CalendarService {
         if (reconnectResult['success'] == true) {
           debugPrint('✅ [CALENDAR] [CONNECT] Smart Reconnect SUCCESS!');
           
-          // Restore local session silently to match backend state
+          // Try to restore local session to match backend state
+          // This is optional - backend connection is what matters for sync
           try {
             _currentAccount = await _googleSignIn.signInSilently();
             if (_currentAccount != null) {
               debugPrint('✅ [CALENDAR] [CONNECT] Local session restored');
               final authenticatedClient = _GoogleAuthClient(await _currentAccount!.authHeaders);
               _calendarApi = calendar.CalendarApi(authenticatedClient);
-              return CalendarConnectResult.success;
+            } else {
+              // iOS: signInSilently often returns null even with valid consent
+              // Backend has valid tokens so calendar sync will work via Cloud Functions
+              debugPrint('ℹ️ [CALENDAR] [CONNECT] Local session null (iOS), but backend connected - calendar sync will work');
             }
           } catch (e) {
             debugPrint('⚠️ [CALENDAR] [CONNECT] Local restore failed, but backend is connected: $e');
-            // We can still return success because the backend connection is what matters for sync
-            return CalendarConnectResult.success;
           }
+          // Return success regardless of local session - backend is the source of truth
+          return CalendarConnectResult.success;
         } else {
           requiresReauth = reconnectResult['requiresReauth'] == true;
           debugPrint('ℹ️ [CALENDAR] [CONNECT] Smart Reconnect failed. requiresReauth=$requiresReauth');
@@ -300,8 +305,21 @@ class CalendarService {
 
       // FULL SIGN-IN FLOW:
       // If we reach here, either we have no tokens or they are invalid
-      // Note: We no longer call signOut() here because if auth code is expired/revoked,
-      // we catch that error from backend and return accessRevoked for user to re-login.
+      
+      // iOS-SPECIFIC FIX: On iOS, the cached Google session interferes with getting
+      // a fresh serverAuthCode. When reauth is required (e.g., user revoked access),
+      // we must disconnect() first to clear the stale session. This forces a fresh
+      // OAuth flow that shows consent screen and returns serverAuthCode.
+      // Android doesn't have this issue - it handles incremental scopes properly.
+      if (Platform.isIOS && requiresReauth) {
+        debugPrint('📅 [CALENDAR] [CONNECT] iOS: requiresReauth=true, clearing stale session...');
+        try {
+          await _googleSignIn.disconnect();
+          debugPrint('📅 [CALENDAR] [CONNECT] iOS: Session cleared, will show fresh consent');
+        } catch (e) {
+          debugPrint('⚠️ [CALENDAR] [CONNECT] iOS: disconnect() error (ignoring): $e');
+        }
+      }
       
       // Try silent sign-in first to avoid showing account picker
       debugPrint('📅 [CALENDAR] [CONNECT] Trying signInSilently first...');
@@ -309,11 +327,33 @@ class CalendarService {
       GoogleSignInAccount? account;
       try {
         account = await _googleSignIn.signInSilently();
-        if (account != null) {
-          debugPrint('✅ [CALENDAR] [CONNECT] signInSilently SUCCESS');
+        // CRITICAL: On iOS, signInSilently() NEVER returns serverAuthCode
+        // even if the user has previously granted access. We must check for it
+        // and force a full signIn() if missing. Android is unaffected since
+        // its signInSilently() already returns serverAuthCode.
+        if (account != null && account.serverAuthCode != null) {
+          debugPrint('✅ [CALENDAR] [CONNECT] signInSilently SUCCESS with serverAuthCode');
         } else {
-          debugPrint('ℹ️ [CALENDAR] [CONNECT] signInSilently returned null, showing dialog...');
+          if (account != null) {
+            debugPrint('⚠️ [CALENDAR] [CONNECT] signInSilently succeeded but no serverAuthCode (iOS), forcing signIn()...');
+          } else {
+            debugPrint('ℹ️ [CALENDAR] [CONNECT] signInSilently returned null, showing dialog...');
+          }
           account = await _googleSignIn.signIn();
+          
+          // iOS-SPECIFIC FALLBACK: If signIn() still doesn't return serverAuthCode,
+          // disconnect to clear the cached session and try once more.
+          // This handles edge cases where the OS session interferes.
+          if (Platform.isIOS && account != null && account.serverAuthCode == null) {
+            debugPrint('⚠️ [CALENDAR] [CONNECT] iOS: signIn() returned no serverAuthCode, disconnecting and retrying...');
+            try {
+              await _googleSignIn.disconnect();
+              account = await _googleSignIn.signIn();
+              debugPrint('📅 [CALENDAR] [CONNECT] iOS: Retry signIn() hasServerAuthCode=${account?.serverAuthCode != null}');
+            } catch (retryError) {
+              debugPrint('❌ [CALENDAR] [CONNECT] iOS: Retry failed: $retryError');
+            }
+          }
         }
       } catch (signInError) {
         debugPrint(
@@ -326,6 +366,7 @@ class CalendarService {
           return CalendarConnectResult.networkError;
         }
         return CalendarConnectResult.signInFailed;
+
       }
 
       if (account == null) {
@@ -340,6 +381,7 @@ class CalendarService {
         '📅 [CALENDAR] [CONNECT] '
         'hasServerAuthCode=${_currentAccount!.serverAuthCode != null}',
       );
+
 
       // Get auth headers for local calendar operations
       final auth = await _currentAccount!.authentication;

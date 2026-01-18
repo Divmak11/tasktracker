@@ -10,19 +10,32 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Configure Firebase
-    FirebaseApp.configure()
+    print("🚀 [AppDelegate] Starting didFinishLaunchingWithOptions...")
     
+    // Note: Firebase is configured by Flutter's firebase_core plugin in main.dart
+    // Do NOT call FirebaseApp.configure() here - it causes duplicate initialization crashes
+    
+    print("🔔 [AppDelegate] Setting up UNUserNotificationCenter...")
     // Set up UNUserNotificationCenter delegate for foreground notifications
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self
+      print("✅ [AppDelegate] UNUserNotificationCenter delegate set")
     }
     
+    print("📱 [AppDelegate] Registering for remote notifications...")
     // Register for remote notifications
     application.registerForRemoteNotifications()
+    print("✅ [AppDelegate] Remote notifications registered")
     
+    print("🔌 [AppDelegate] Registering Flutter plugins...")
     GeneratedPluginRegistrant.register(with: self)
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    print("✅ [AppDelegate] Flutter plugins registered")
+    
+    print("🎯 [AppDelegate] Calling super.application...")
+    let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    print("✅ [AppDelegate] super.application returned: \(result)")
+    
+    return result
   }
   
   // Handle foreground notification presentation - show alert even when app is in foreground

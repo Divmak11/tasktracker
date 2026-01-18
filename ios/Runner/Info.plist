@@ -21,7 +21,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.1062148887754-aio0l0modvdislqu72abdgg1qt7pdqnj</string>
+				<string>com.googleusercontent.apps.1062148887754-1hs85ua18dlq2j6nlm4rfglft2g41u2j</string>
 			</array>
 		</dict>
 	</array>
@@ -66,10 +66,31 @@
 	<string>This app needs access to your photo library to set your profile picture.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs access to the camera to take photos for your profile picture.</string>
+	<key>NSPhotoLibraryAdditionsUsageDescription</key>
+	<string>This app needs access to save photos to your library for profile pictures and task attachments.</string>
 	<!-- Voice Input Permissions -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access to enable voice typing for task creation.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>This app needs speech recognition to convert your voice to text for task titles and descriptions.</string>
+	<!-- Calendar Integration Permissions -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>This app needs calendar access to sync your tasks with Google Calendar.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>This app needs full calendar access to create and manage events in your Google Calendar for task scheduling.</string>
+	<!-- Local Network Debugging Permissions -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to the local network for debugging and syncing with local services.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dart-observatory._tcp</string>
+		<string>_dartviewservice._tcp</string>
+	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app needs bluetooth access for certain voice input features.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>This app needs bluetooth access for certain voice input features.</string>
+	<key>FLTEnableImpeller</key>
+	<false/>
 </dict>
 </plist>

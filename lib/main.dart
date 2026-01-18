@@ -20,61 +20,102 @@ import 'data/services/update_check_service.dart';
 import 'presentation/common/dialogs/update_dialog.dart';
 
 void main() async {
+  print('🚀 [STEP 0] main() entered');
+  
   WidgetsFlutterBinding.ensureInitialized();
+  print('🚀 [STEP 1] WidgetsFlutterBinding.ensureInitialized() complete');
 
-  // Load environment variables first (needed for EnvConfig)
-  await dotenv.load(fileName: ".env");
+  // Load environment variables with error handling for iOS compatibility
+  try {
+    print('🚀 [STEP 2] Loading .env file...');
+    await dotenv.load(fileName: ".env");
+    debugPrint('[OK] [ENV] Environment file loaded successfully');
+  } catch (e) {
+    debugPrint('[WARN] [ENV] Could not load .env file: $e');
+    debugPrint('[WARN] [ENV] Using default environment variables');
+  }
+  print('🚀 [STEP 3] .env loading complete');
 
+  print('🚀 [STEP 4] Setting up FlutterError handler...');
   // Set up global error handlers
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     // Only print detailed error info in development mode
     if (!EnvConfig.isProduction) {
-      debugPrint('🔴 Flutter Error: ${details.exception}');
+      debugPrint('[RED] Flutter Error: ${details.exception}');
       debugPrint('Stack trace: ${details.stack}');
     }
     // In production, you could send this to a crash reporting service like Crashlytics
   };
 
-  // Initialize Firebase
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Initialize Firebase Analytics
-  final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
-  
-  // Enable Analytics collection (it's enabled by default, but this ensures it)
-  await analytics.setAnalyticsCollectionEnabled(true);
-  
-  // Log app start event
-  await analytics.logAppOpen();
-  
-  // Log a test event to verify configuration
-  await analytics.logEvent(
-    name: 'analytics_config_verified',
-    parameters: {'timestamp': DateTime.now().toIso8601String()},
-  );
-  
-  debugPrint('✅ Firebase Analytics initialized and test event logged');
-  if (!EnvConfig.isProduction) {
-    debugPrint('📊 Analytics Instance ID: ${analytics.app.name}');
+  print('🚀 [STEP 5] Starting Firebase initialization...');
+  // Initialize Firebase with error handling
+  try {
+    debugPrint('[FIRE] [FIREBASE] Starting Firebase initialization...');
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    debugPrint('[OK] [FIREBASE] Firebase.initializeApp() completed successfully');
+  } catch (e, stackTrace) {
+    debugPrint('[ERROR] [FIREBASE] CRITICAL ERROR during Firebase.initializeApp()!');
+    debugPrint('[ERROR] [FIREBASE] Error: $e');
+    debugPrint('[ERROR] [FIREBASE] Stack: $stackTrace');
+    rethrow; // Re-throw to show in console
   }
+  print('🚀 [STEP 6] Firebase initialized');
+
+  print('🚀 [STEP 7] Initializing Firebase Analytics...');
+  // Initialize Firebase Analytics with error handling
+  try {
+    final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
+    
+    // Enable Analytics collection (it's enabled by default, but this ensures it)
+    await analytics.setAnalyticsCollectionEnabled(true);
+    
+    // Log app start event
+    await analytics.logAppOpen();
+    
+    // Log a test event to verify configuration
+    await analytics.logEvent(
+      name: 'analytics_config_verified',
+      parameters: {'timestamp': DateTime.now().toIso8601String()},
+    );
+    
+    debugPrint('[OK] [FIREBASE] Analytics initialized successfully');
+    if (!EnvConfig.isProduction) {
+      debugPrint('[CHART] Analytics Instance ID: ${analytics.app.name}');
+    }
+  } catch (e) {
+    debugPrint('[WARN] [FIREBASE] Analytics initialization failed: $e');
+  }
+  print('🚀 [STEP 8] Analytics done');
 
   // Note: Firebase Auth persistence is automatically enabled on mobile platforms
   // setPersistence() is only supported on web and will throw UnimplementedError on mobile
   // Mobile apps have persistent auth by default - no configuration needed
 
   // Enable Firestore persistence for offline support and faster reads
-  FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
-    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-  );
+  try {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+    debugPrint('[OK] [FIRESTORE] Persistence settings configured');
+  } catch (e) {
+    debugPrint('[WARN] [FIRESTORE] Could not configure persistence: $e');
+    // Continue with default settings
+  }
 
   // Request notification permissions (iOS requires explicit permission)
-  await FirebaseMessaging.instance.requestPermission(
-    alert: true,
-    badge: true,
-    sound: true,
-  );
+  try {
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    debugPrint('[OK] [FCM] Notification permissions requested');
+  } catch (e) {
+    debugPrint('[WARN] [FCM] Failed to request notification permissions: $e');
+    // Continue with app launch - permissions can be requested later
+  }
 
   // Create Android notification channel with sound (required for Android 8.0+)
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -89,12 +130,16 @@ void main() async {
     enableVibration: true,
   );
 
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
-
-  debugPrint('✅ Android notification channel created with sound enabled');
+  try {
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+    debugPrint('[OK] Android notification channel created with sound enabled');
+  } catch (e) {
+    debugPrint('[WARN] Failed to create Android notification channel: $e');
+    // Continue - this is Android-specific and may fail on iOS
+  }
 
   // Initialize and check for app updates
   // This runs in the background without blocking app launch
@@ -103,22 +148,25 @@ void main() async {
       final updateService = UpdateCheckService();
       await updateService.initialize();
       // Check will be triggered on first app screen (delegated to app)
-      debugPrint('✅ Update check service initialized');
+      debugPrint('[OK] Update check service initialized');
     } catch (e) {
-      debugPrint('⚠️ Failed to initialize update service: $e');
+      debugPrint('[WARN] Failed to initialize update service: $e');
       // Continue with app launch even if update check fails
     }
   });
 
+  print('🚀 [STEP 9] Initializing ThemeProvider...');
   // Initialize Theme
   final themeProvider = ThemeProvider();
   try {
     await themeProvider.initialize();
-    debugPrint('✅ Theme provider initialized');
+    debugPrint('[OK] Theme provider initialized');
   } catch (e) {
-    debugPrint('⚠️ Failed to initialize theme provider: $e');
+    debugPrint('[WARN] Failed to initialize theme provider: $e');
     // App will continue with default theme
   }
+
+  print('🚀 [STEP 10] Calling runApp()...');
 
   runApp(MyApp(themeProvider: themeProvider));
 }
@@ -170,7 +218,7 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('⚠️ Error checking for updates in MyApp: $e');
+        debugPrint('[WARN] Error checking for updates in MyApp: $e');
       }
       // Silently fail - don't disrupt user experience
     }

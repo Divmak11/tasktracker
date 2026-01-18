@@ -8,6 +8,8 @@ import '../repositories/auth_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/fcm_service.dart';
 import '../services/calendar_service.dart';
+import '../services/cloud_functions_service.dart';
+
 
 class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   final AuthRepository _authRepository;
@@ -245,14 +247,32 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   /// Sign in with Google
+  /// Calendar consent is included in sign-in flow for seamless toggle experience
   Future<void> signInWithGoogle() async {
     debugPrint('🔐 Starting Google Sign-In...');
     _isLoading = true;
     notifyListeners();
 
     try {
-      await _authRepository.signInWithGoogle();
+      final result = await _authRepository.signInWithGoogle();
       debugPrint('✅ Google Sign-In successful');
+      
+      // Exchange serverAuthCode for calendar tokens immediately
+      // This enables seamless calendar toggle without showing account picker again
+      if (result.serverAuthCode != null) {
+        debugPrint('📅 Exchanging calendar auth code...');
+        try {
+          final cloudFunctions = CloudFunctionsService();
+          await cloudFunctions.exchangeCalendarAuthCode(result.serverAuthCode!);
+          debugPrint('✅ Calendar tokens exchanged and stored');
+        } catch (calendarError) {
+          // Non-fatal: User can still use the app, calendar toggle will retry
+          debugPrint('⚠️ Calendar token exchange failed (non-fatal): $calendarError');
+        }
+      } else {
+        debugPrint('ℹ️ No serverAuthCode received (calendar connection will require manual toggle)');
+      }
+      
       // User data will be loaded automatically via auth state listener
 
       // Wait for user data to actually load (with timeout)
@@ -280,6 +300,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       rethrow;
     }
   }
+
 
   /// Wait for user data to load with timeout
   Future<void> _waitForUserData() async {

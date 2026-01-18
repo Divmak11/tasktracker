@@ -72,13 +72,38 @@ Before starting, ensure you have:
    - **Client ID:** `1234567890-abc.apps.googleusercontent.com`
    - **Client Secret:** `GOCSPX-xxxxxxxxxxxxx`
 
-### Step 2.4: Download google-services.json
+### Step 2.4: Download google-services.json (Android)
 
 1. Go to Firebase Console → Project Settings
 2. Under "Your apps", find Android app
 3. Download `google-services.json`
 4. Look for `client_type: 3` (Web) entry → This is your **Web Client ID**
 5. Place in `android/app/google-services.json`
+
+### Step 2.5: iOS Configuration
+
+1. Go to Firebase Console → Project Settings
+2. Under "Your apps", find iOS app
+3. Download `GoogleService-Info.plist`
+4. Place in `ios/Runner/GoogleService-Info.plist`
+
+5. Open `ios/Runner/Info.plist` and add URL scheme:
+```xml
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleTypeRole</key>
+    <string>Editor</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <!-- Reversed Client ID from GoogleService-Info.plist -->
+      <string>com.googleusercontent.apps.1234567890-abc</string>
+    </array>
+  </dict>
+</array>
+```
+
+6. Find `REVERSED_CLIENT_ID` in `GoogleService-Info.plist` and use that value above.
 
 ---
 
@@ -846,6 +871,7 @@ dependencies:
   cloud_functions: ^4.5.8
   cloud_firestore: ^4.13.6
   flutter_dotenv: ^5.1.0
+  http: ^1.2.0  # REQUIRED for _GoogleAuthClient
 ```
 
 ### 5.2: Complete CalendarService Implementation
@@ -1248,6 +1274,9 @@ case CalendarConnectResult.accessRevoked:
 | Token revoked (active) | 401/invalid_grant during operation | `handleCalendarAuthError()` resets connection |
 | Token revoked (passive) | `verifyConnectionStatus()` on login | Backend updates Firestore |
 | Infinite verification loop | N/A | `_calendarVerifiedThisSession` flag |
+| Dormant user (6+ months) | Monthly `maintainCalendarTokens` job | Proactively refreshes or clears tokens |
+| Account deletion | User deletes account | Call `deleteAllUserCalendarEvents()` before deletion |
+| Multi-assignee tasks | Task has multiple assignees | Each assignee gets own event, stored in `assignments` subcollection |
 
 ---
 
