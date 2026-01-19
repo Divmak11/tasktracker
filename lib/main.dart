@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
@@ -115,6 +116,21 @@ void main() async {
   } catch (e) {
     debugPrint('[WARN] [FCM] Failed to request notification permissions: $e');
     // Continue with app launch - permissions can be requested later
+  }
+
+  // Request microphone permission upfront for voice input feature
+  try {
+    final micStatus = await Permission.microphone.request();
+    if (micStatus.isGranted) {
+      debugPrint('[OK] [MIC] Microphone permission granted');
+    } else if (micStatus.isDenied) {
+      debugPrint('[WARN] [MIC] Microphone permission denied - voice input will prompt user to enable in settings');
+    } else if (micStatus.isPermanentlyDenied) {
+      debugPrint('[WARN] [MIC] Microphone permission permanently denied - user must enable in device settings');
+    }
+  } catch (e) {
+    debugPrint('[WARN] [MIC] Failed to request microphone permission: $e');
+    // Continue with app launch - voice input will handle gracefully
   }
 
   // Create Android notification channel with sound (required for Android 8.0+)

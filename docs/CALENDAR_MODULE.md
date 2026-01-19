@@ -1,8 +1,13 @@
 # Google Calendar Integration - Complete Developer Guide
 
-> **Module Version:** 2.0 (Server Auth Code Flow)  
+> **Module Version:** 2.1 (Upfront Calendar Consent Flow)  
 > **Last Updated:** January 2026  
 > **Platforms:** Flutter (iOS/Android) + Firebase Cloud Functions v2
+>
+> **Key Changes in v2.1:**
+> - Calendar consent moved to initial Google Sign-In flow
+> - iOS-specific platform handling for serverAuthCode
+> - New `CalendarRefreshResult` enum for token refresh operations
 
 This guide provides step-by-step instructions to implement Google Calendar integration identical to the Taskiya app. A 10-year-old should be able to follow this.
 
@@ -16,9 +21,10 @@ This guide provides step-by-step instructions to implement Google Calendar integ
 4. [Backend Implementation](#4-backend-implementation)
 5. [Frontend Implementation](#5-frontend-implementation)
 6. [User Flows](#6-user-flows)
-7. [Edge Case Handling](#7-edge-case-handling)
-8. [Testing Checklist](#8-testing-checklist)
-9. [Troubleshooting](#9-troubleshooting)
+7. [Platform-Specific Considerations](#7-platform-specific-considerations)
+8. [Edge Case Handling](#8-edge-case-handling)
+9. [Testing Checklist](#9-testing-checklist)
+10. [Troubleshooting](#10-troubleshooting)
 
 ---
 
@@ -879,34 +885,77 @@ dependencies:
 ```dart
 // lib/data/services/calendar_service.dart
 
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
-import 'package:http/http.dart' as http;  // IMPORTANT: Needed for _GoogleAuthClient
-import '../core/constants/env_config.dart';
+import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/constants/env_config.dart';
 import 'cloud_functions_service.dart';
 
 // ============================================================================
 // RESULT ENUMS
 // ============================================================================
-enum CalendarConnectResult {
+
+/// Result of calendar token refresh operation
+enum CalendarRefreshResult {
+  /// Token refresh succeeded
   success,
+
+  /// Token refresh failed after retries (network/server error)
+  failed,
+
+  /// User needs to reconnect calendar (silent sign-in failed)
+  reconnectNeeded,
+}
+
+/// Result of calendar connection operation with specific failure reasons
+enum CalendarConnectResult {
+  /// Connection successful - calendar is now connected and verified
+  success,
+
+  /// User cancelled the sign-in dialog (pressed back or cancelled)
   userCancelled,
+
+  /// Google sign-in failed (could be network, configuration, etc.)
   signInFailed,
+
+  /// No server auth code received (configuration issue with webClientId)
   noServerAuthCode,
+
+  /// Backend token exchange failed
   backendExchangeFailed,
+
+  /// Backend verification failed - tokens don't actually work
   verificationFailed,
+
+  /// Network error during connection
   networkError,
-  accessRevoked,  // User must logout and login again
+
+  /// Access was revoked - user needs to logout and login again
+  accessRevoked,
+
+  /// Unknown error occurred
   unknownError,
 }
 
+/// Result of calendar disconnection operation
 enum CalendarDisconnectResult {
+  /// Disconnection successful - calendar is now disconnected
   success,
+
+  /// Already disconnected - no action needed
   alreadyDisconnected,
-  networkError,
-  backendFailed,
+
+  /// Local sign-out failed
   localSignOutFailed,
+
+  /// Backend disconnect failed but local state was cleared
+  backendFailed,
+
+  /// Network error during disconnection
+  networkError,
 }
 
 // ============================================================================
@@ -917,14 +966,18 @@ class CalendarService {
   factory CalendarService() => _instance;
   CalendarService._internal();
 
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
 
-  // GoogleSignIn with calendar scope + serverClientId for auth code
+  // Web Client ID from environment config
+  String get _webClientId => EnvConfig.googleWebClientId;
+
+  // GoogleSignIn with calendar scope and serverClientId for auth code flow
   GoogleSignIn? _googleSignInInstance;
   GoogleSignIn get _googleSignIn {
     _googleSignInInstance ??= GoogleSignIn(
       scopes: ['email', calendar.CalendarApi.calendarEventsScope],
-      serverClientId: EnvConfig.googleWebClientId,
+      serverClientId: _webClientId,
     );
     return _googleSignInInstance!;
   }
@@ -991,7 +1044,58 @@ class CalendarService {
   }
 
   // ============================================================================
-  // CONNECT: Main connection flow
+  // REFRESH ACCESS TOKEN: Fallback for active app
+  // ============================================================================
+  Future<CalendarRefreshResult> refreshAccessToken(
+    String userId, {
+    int maxRetries = 2,
+  }) async {
+    debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] Starting for user=$userId');
+
+    int attempt = 0;
+    Exception? lastError;
+
+    while (attempt <= maxRetries) {
+      attempt++;
+      debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] Attempt $attempt/${maxRetries + 1}');
+
+      try {
+        _currentAccount = await _googleSignIn.signInSilently();
+
+        if (_currentAccount == null) {
+          debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in returned null');
+          return CalendarRefreshResult.reconnectNeeded;
+        }
+
+        final auth = await _currentAccount!.authentication;
+        if (auth.accessToken == null) {
+          debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] No access token available');
+          return CalendarRefreshResult.reconnectNeeded;
+        }
+
+        await _firestore.collection('users').doc(userId).update({
+          'googleCalendarConnected': true,
+          'googleAccessToken': auth.accessToken,
+        });
+
+        debugPrint('✅ [CALENDAR] [REFRESH_TOKEN] SUCCESS');
+        return CalendarRefreshResult.success;
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        debugPrint('❌ [CALENDAR] [REFRESH_TOKEN] Attempt $attempt FAILED: $e');
+
+        if (attempt <= maxRetries) {
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        }
+      }
+    }
+
+    debugPrint('❌ [CALENDAR] [REFRESH_TOKEN] All attempts failed: $lastError');
+    return CalendarRefreshResult.failed;
+  }
+
+  // ============================================================================
+  // CONNECT: Main connection flow with iOS-specific handling
   // ============================================================================
   Future<CalendarConnectResult> connect(String userId) async {
     debugPrint('📅 [CALENDAR] [CONNECT] Starting for user=$userId');
@@ -1006,12 +1110,19 @@ class CalendarService {
         if (reconnectResult['success'] == true) {
           debugPrint('✅ [CALENDAR] [CONNECT] Smart Reconnect SUCCESS!');
           
-          // Restore local session
-          _currentAccount = await _googleSignIn.signInSilently();
-          if (_currentAccount != null) {
-            _calendarApi = calendar.CalendarApi(
-              _GoogleAuthClient(await _currentAccount!.authHeaders)
-            );
+          // Try to restore local session (optional - backend is source of truth)
+          try {
+            _currentAccount = await _googleSignIn.signInSilently();
+            if (_currentAccount != null) {
+              _calendarApi = calendar.CalendarApi(
+                _GoogleAuthClient(await _currentAccount!.authHeaders)
+              );
+            } else {
+              // iOS: signInSilently often returns null even with valid consent
+              debugPrint('ℹ️ [CALENDAR] [CONNECT] Local session null (iOS), but backend connected');
+            }
+          } catch (e) {
+            debugPrint('⚠️ [CALENDAR] [CONNECT] Local restore failed, but backend is connected: $e');
           }
           return CalendarConnectResult.success;
         } else {
@@ -1022,19 +1133,51 @@ class CalendarService {
         debugPrint('⚠️ [CALENDAR] [CONNECT] Smart Reconnect error: $e');
       }
 
+      // iOS-SPECIFIC FIX: On iOS, cached session interferes with fresh serverAuthCode
+      // Must disconnect() first when reauth is required
+      if (Platform.isIOS && requiresReauth) {
+        debugPrint('📅 [CALENDAR] [CONNECT] iOS: requiresReauth=true, clearing stale session...');
+        try {
+          await _googleSignIn.disconnect();
+          debugPrint('📅 [CALENDAR] [CONNECT] iOS: Session cleared');
+        } catch (e) {
+          debugPrint('⚠️ [CALENDAR] [CONNECT] iOS: disconnect() error: $e');
+        }
+      }
+
       // STEP 2: Full Sign-In Flow
       debugPrint('📅 [CALENDAR] [CONNECT] Trying signInSilently...');
-      
+
       GoogleSignInAccount? account;
       try {
         account = await _googleSignIn.signInSilently();
-        if (account == null) {
-          debugPrint('ℹ️ [CALENDAR] [CONNECT] signInSilently null, showing dialog...');
+        
+        // CRITICAL iOS FIX: signInSilently() NEVER returns serverAuthCode on iOS
+        if (account != null && account.serverAuthCode != null) {
+          debugPrint('✅ [CALENDAR] [CONNECT] signInSilently SUCCESS with serverAuthCode');
+        } else {
+          if (account != null) {
+            debugPrint('⚠️ [CALENDAR] [CONNECT] signInSilently no serverAuthCode (iOS), forcing signIn()...');
+          } else {
+            debugPrint('ℹ️ [CALENDAR] [CONNECT] signInSilently null, showing dialog...');
+          }
           account = await _googleSignIn.signIn();
+          
+          // iOS FALLBACK: If still no serverAuthCode, disconnect and retry once
+          if (Platform.isIOS && account != null && account.serverAuthCode == null) {
+            debugPrint('⚠️ [CALENDAR] [CONNECT] iOS: No serverAuthCode, disconnecting and retrying...');
+            try {
+              await _googleSignIn.disconnect();
+              account = await _googleSignIn.signIn();
+              debugPrint('📅 [CALENDAR] [CONNECT] iOS: Retry hasServerAuthCode=${account?.serverAuthCode != null}');
+            } catch (retryError) {
+              debugPrint('❌ [CALENDAR] [CONNECT] iOS: Retry failed: $retryError');
+            }
+          }
         }
-      } catch (e) {
-        debugPrint('❌ [CALENDAR] [CONNECT] GoogleSignIn error: $e');
-        if (e.toString().contains('network')) {
+      } catch (signInError) {
+        debugPrint('❌ [CALENDAR] [CONNECT] GoogleSignIn error: $signInError');
+        if (signInError.toString().contains('network')) {
           return CalendarConnectResult.networkError;
         }
         return CalendarConnectResult.signInFailed;
@@ -1051,23 +1194,25 @@ class CalendarService {
       final serverAuthCode = account.serverAuthCode;
       if (serverAuthCode == null || serverAuthCode.isEmpty) {
         debugPrint('❌ [CALENDAR] [CONNECT] No serverAuthCode!');
+        _calendarApi = null;
         return CalendarConnectResult.noServerAuthCode;
       }
 
-      debugPrint('📅 [CALENDAR] [CONNECT] Got serverAuthCode, calling backend...');
+      // Setup local calendar API
+      _calendarApi = calendar.CalendarApi(
+        _GoogleAuthClient(await account.authHeaders)
+      );
 
       // STEP 4: Exchange auth code with backend
+      debugPrint('📅 [CALENDAR] [CONNECT] Calling backend exchangeCalendarAuthCode...');
+
       try {
         final result = await _cloudFunctions.exchangeCalendarAuthCode(serverAuthCode);
         
         if (result['success'] != true) {
+          _calendarApi = null;
           return CalendarConnectResult.backendExchangeFailed;
         }
-
-        // Setup local calendar API
-        _calendarApi = calendar.CalendarApi(
-          _GoogleAuthClient(await account.authHeaders)
-        );
 
         debugPrint('✅ [CALENDAR] [CONNECT] SUCCESS');
         return CalendarConnectResult.success;
@@ -1079,7 +1224,6 @@ class CalendarService {
 
         final errorStr = e.toString().toLowerCase();
         
-        // CRITICAL: Detect expired auth code (revocation case)
         if (errorStr.contains('expired') || errorStr.contains('already used')) {
           debugPrint('⚠️ [CALENDAR] [CONNECT] Auth code expired - clearing session');
           await clearStaleSession();
@@ -1131,6 +1275,111 @@ class CalendarService {
       return CalendarDisconnectResult.backendFailed;
     }
   }
+
+  // ============================================================================
+  // LOCAL CALENDAR OPERATIONS (Optional - Backend handles sync via triggers)
+  // ============================================================================
+
+  /// Create a calendar event for a task (local operation)
+  Future<String?> createTaskEvent({
+    required String title,
+    required String description,
+    required DateTime deadline,
+    String? attendeeEmail,
+  }) async {
+    if (_calendarApi == null) return null;
+
+    try {
+      final startTime = deadline.subtract(const Duration(hours: 1));
+      final timeZone = DateTime.now().timeZoneName;
+
+      final event = calendar.Event(
+        summary: title,
+        description: description,
+        start: calendar.EventDateTime(dateTime: startTime.toUtc(), timeZone: timeZone),
+        end: calendar.EventDateTime(dateTime: deadline.toUtc(), timeZone: timeZone),
+        reminders: calendar.EventReminders(
+          useDefault: false,
+          overrides: [
+            calendar.EventReminder(method: 'popup', minutes: 30),
+            calendar.EventReminder(method: 'email', minutes: 60),
+          ],
+        ),
+      );
+
+      if (attendeeEmail != null && attendeeEmail.isNotEmpty) {
+        event.attendees = [calendar.EventAttendee(email: attendeeEmail)];
+      }
+
+      final createdEvent = await _calendarApi!.events.insert(event, 'primary');
+      debugPrint('✅ Calendar: Event created - ${createdEvent.id}');
+      return createdEvent.id;
+    } catch (e) {
+      debugPrint('❌ Calendar: Event creation failed - $e');
+      return null;
+    }
+  }
+
+  /// Update a calendar event (local operation)
+  Future<bool> updateTaskEvent({
+    required String eventId,
+    String? title,
+    String? description,
+    DateTime? deadline,
+  }) async {
+    if (_calendarApi == null) return false;
+
+    try {
+      final existingEvent = await _calendarApi!.events.get('primary', eventId);
+
+      if (title != null) existingEvent.summary = title;
+      if (description != null) existingEvent.description = description;
+      if (deadline != null) {
+        final startTime = deadline.subtract(const Duration(hours: 1));
+        final timeZone = DateTime.now().timeZoneName;
+        existingEvent.start = calendar.EventDateTime(dateTime: startTime.toUtc(), timeZone: timeZone);
+        existingEvent.end = calendar.EventDateTime(dateTime: deadline.toUtc(), timeZone: timeZone);
+      }
+
+      await _calendarApi!.events.update(existingEvent, 'primary', eventId);
+      debugPrint('✅ Calendar: Event updated - $eventId');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Calendar: Event update failed - $e');
+      return false;
+    }
+  }
+
+  /// Delete a calendar event (local operation)
+  Future<bool> deleteTaskEvent(String eventId) async {
+    if (_calendarApi == null) return false;
+
+    try {
+      await _calendarApi!.events.delete('primary', eventId);
+      debugPrint('✅ Calendar: Event deleted - $eventId');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Calendar: Event deletion failed - $e');
+      return false;
+    }
+  }
+
+  /// Mark event as completed (local operation)
+  Future<bool> markEventCompleted(String eventId) async {
+    if (_calendarApi == null) return false;
+
+    try {
+      final event = await _calendarApi!.events.get('primary', eventId);
+      event.summary = '✅ ${event.summary}';
+      event.colorId = '10'; // Green color
+
+      await _calendarApi!.events.update(event, 'primary', eventId);
+      return true;
+    } catch (e) {
+      debugPrint('❌ Calendar: Mark completed failed - $e');
+      return false;
+    }
+  }
 }
 
 // ============================================================================
@@ -1178,95 +1427,360 @@ class CloudFunctionsService {
 }
 ```
 
-### 5.4: AuthProvider Integration
+### 5.4: AuthRepository with Upfront Calendar Consent
+
+> **KEY CHANGE (v2.1):** Calendar consent is now requested during the initial Google Sign-In flow, not when toggling the calendar switch in Settings. This provides a seamless experience where users only see one consent screen.
 
 ```dart
-// In lib/data/providers/auth_provider.dart
+// lib/data/repositories/auth_repository.dart
 
-bool _calendarVerifiedThisSession = false;
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/calendar/v3.dart' as calendar;
+import '../../core/constants/env_config.dart';
 
-// In the user stream listener, after user is loaded:
-if (user?.googleCalendarConnected == true && !_calendarVerifiedThisSession) {
-  _calendarVerifiedThisSession = true;
-  CalendarService().verifyConnectionStatus().then((isValid) {
-    if (!isValid) {
-      debugPrint('⚠️ Calendar connection was invalidated');
+/// Result of Google sign-in containing Firebase credential and optional serverAuthCode
+typedef GoogleSignInResult = ({
+  firebase_auth.UserCredential credential,
+  String? serverAuthCode,
+});
+
+class AuthRepository {
+  final firebase_auth.FirebaseAuth _firebaseAuth;
+  final GoogleSignIn _googleSignIn;
+
+  AuthRepository({
+    firebase_auth.FirebaseAuth? firebaseAuth,
+    GoogleSignIn? googleSignIn,
+  }) : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance,
+       // CRITICAL: Include calendar scope and serverClientId for upfront consent
+       _googleSignIn = googleSignIn ?? GoogleSignIn(
+         scopes: ['email', calendar.CalendarApi.calendarEventsScope],
+         serverClientId: EnvConfig.googleWebClientId,
+       );
+
+  /// Sign in with Google (includes calendar consent for seamless toggle experience)
+  /// Returns both Firebase credential and serverAuthCode for calendar token exchange
+  Future<GoogleSignInResult> signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+
+      if (googleUser == null) {
+        throw Exception('Google Sign-In was cancelled');
+      }
+
+      // Capture serverAuthCode for calendar token exchange
+      final serverAuthCode = googleUser.serverAuthCode;
+
+      // Obtain auth details
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create credential
+      final credential = firebase_auth.GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase
+      final userCredential = await _firebaseAuth.signInWithCredential(credential);
+      
+      return (credential: userCredential, serverAuthCode: serverAuthCode);
+    } catch (e) {
+      throw Exception('Google Sign-In failed: $e');
     }
-  });
-}
+  }
 
-// In _clearUser() method:
-void _clearUser() {
-  _calendarVerifiedThisSession = false;  // Reset for next login
-  CalendarService().reset();
-  // ... rest of cleanup
+  // ... other methods (signInWithApple, signOut, etc.)
 }
 ```
 
-### 5.5: UI Handler (Settings Screen)
+### 5.5: AuthProvider with Immediate Token Exchange
 
 ```dart
-// Handle CalendarConnectResult.accessRevoked
-case CalendarConnectResult.accessRevoked:
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('Calendar access was revoked. Please logout and login again to reconnect.'),
-      backgroundColor: Colors.orange,
-      duration: Duration(seconds: 5),
-    ),
-  );
-  break;
+// lib/data/providers/auth_provider.dart
+
+class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
+  // ... existing fields ...
+  
+  bool _calendarVerifiedThisSession = false; // Prevent repeated verification calls
+
+  /// Sign in with Google
+  /// Calendar consent is included in sign-in flow for seamless toggle experience
+  Future<void> signInWithGoogle() async {
+    debugPrint('🔐 Starting Google Sign-In...');
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      final result = await _authRepository.signInWithGoogle();
+      debugPrint('✅ Google Sign-In successful');
+      
+      // IMMEDIATE TOKEN EXCHANGE: Exchange serverAuthCode for calendar tokens
+      // This enables seamless calendar toggle without showing account picker again
+      if (result.serverAuthCode != null) {
+        debugPrint('📅 Exchanging calendar auth code...');
+        try {
+          final cloudFunctions = CloudFunctionsService();
+          await cloudFunctions.exchangeCalendarAuthCode(result.serverAuthCode!);
+          debugPrint('✅ Calendar tokens exchanged and stored');
+        } catch (calendarError) {
+          // Non-fatal: User can still use the app, calendar toggle will retry
+          debugPrint('⚠️ Calendar token exchange failed (non-fatal): $calendarError');
+        }
+      } else {
+        debugPrint('ℹ️ No serverAuthCode received (calendar toggle will require manual consent)');
+      }
+      
+      // Wait for user data to load
+      await _waitForUserData();
+    } catch (e) {
+      debugPrint('❌ Google Sign-In failed: $e');
+      await _authRepository.signOutGoogleOnly();
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  // In the user stream listener, verify calendar connection once per session:
+  void _onUserDataReceived(UserModel? user) {
+    // ... existing logic ...
+    
+    // Proactively verify calendar connection if user has it enabled
+    // Only verify ONCE per session to avoid infinite loop
+    if (user?.googleCalendarConnected == true && !_calendarVerifiedThisSession) {
+      _calendarVerifiedThisSession = true;
+      CalendarService().verifyConnectionStatus().then((isValid) {
+        if (!isValid) {
+          debugPrint('⚠️ Calendar connection was invalidated');
+          // Backend already set googleCalendarConnected = false
+        }
+      });
+    }
+  }
+
+  void _clearUser() {
+    _calendarVerifiedThisSession = false;  // Reset for next login
+    CalendarService().reset();  // Clear calendar state
+    // ... rest of cleanup
+  }
+}
+```
+
+### 5.6: UI Handler (Settings Screen)
+
+```dart
+// Handle all CalendarConnectResult cases
+
+switch (result) {
+  case CalendarConnectResult.success:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Calendar connected successfully!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.userCancelled:
+    // User cancelled - no snackbar needed
+    debugPrint('📅 Calendar connection cancelled by user');
+    break;
+
+  case CalendarConnectResult.networkError:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Network error. Please check your connection.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.signInFailed:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Google sign-in failed. Please try again.'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.noServerAuthCode:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Configuration error. Please contact support.'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.verificationFailed:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Calendar verification failed. Please ensure you granted permissions.'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.backendExchangeFailed:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Failed to connect calendar. Please try again.'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.accessRevoked:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Calendar access was revoked. Please logout and login again to reconnect.'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 5),
+      ),
+    );
+    break;
+
+  case CalendarConnectResult.unknownError:
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('An unexpected error occurred. Please try again.'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    break;
+}
 ```
 
 ---
 
 ## 6. User Flows
 
-### Flow 1: First Time Connect
-1. User toggles calendar switch
-2. `reconnectCalendar()` fails (no tokens)
-3. `signInSilently()` returns null
-4. `signIn()` shows consent screen
-5. User grants permission → serverAuthCode returned
-6. `exchangeCalendarAuthCode()` exchanges code for tokens
-7. Backend verifies tokens work
-8. Backend saves tokens + sets `googleCalendarConnected = true`
-9. UI shows "Connected"
+> **KEY CHANGE (v2.1):** Calendar consent is now obtained during the initial Google Sign-In, not when toggling the calendar switch. This creates a seamless experience.
 
-### Flow 2: Reconnect (Not Revoked)
-1. User toggles calendar switch
-2. `reconnectCalendar()` succeeds (valid refresh token)
-3. Backend refreshes access token
-4. Backend verifies token works
-5. `signInSilently()` restores local session
-6. UI shows "Connected" - **No dialog!**
+### Flow 0: First Time Login with Calendar Consent (NEW)
+1. User taps "Sign in with Google" on login screen
+2. Google consent screen shows **including calendar permission** (due to `calendarEventsScope` in AuthRepository)
+3. User grants all permissions
+4. `signInWithGoogle()` returns `serverAuthCode`
+5. **Immediately** exchanges `serverAuthCode` via `exchangeCalendarAuthCode()` Cloud Function
+6. Backend stores access token + refresh token
+7. User enters app (calendar tokens stored but `googleCalendarConnected = false`)
 
-### Flow 3: Reconnect (Revoked)
-1. User revokes access in Google Settings
-2. User toggles calendar switch
+> **Note:** Users have granted calendar consent but haven't explicitly enabled sync. Toggling the calendar switch in Settings will now work instantly without showing any dialog.
+
+### Flow 1: Toggle Calendar ON (After Login)
+1. User goes to Settings → Calendar toggle is OFF
+2. User toggles switch ON
+3. `CalendarService.connect()` is called
+4. **Smart Reconnect:** `reconnectCalendar()` checks for stored tokens
+   - If tokens exist and are valid → **SUCCESS immediately!** (No dialog)
+   - If tokens don't exist or are invalid → Continue to full flow
+5. `signInSilently()` attempts silent session restoration
+6. If no session, `signIn()` shows consent screen
+7. Exchange `serverAuthCode` with backend
+8. Backend sets `googleCalendarConnected = true`
+9. UI shows "Connected" ✓
+
+### Flow 2: Smart Reconnect (Returning User)
+1. User previously connected calendar and logged out
+2. User logs back in
+3. `verifyConnectionStatus()` is called on user data load
+4. Backend validates stored refresh token
+5. If valid → `googleCalendarConnected` remains true
+6. User sees calendar already connected in Settings
+
+### Flow 3: Reconnect After Token Expiry
+1. User has calendar connected
+2. Access token expires (after 1 hour)
+3. User or backend attempts calendar operation
+4. Backend uses `oauth2Client.on('tokens')` listener
+5. New access token is automatically saved to Firestore
+6. Operation succeeds - **User notices nothing!**
+
+### Flow 4: Reconnect After Access Revoked
+1. User revokes access in [Google Account Settings](https://myaccount.google.com/permissions)
+2. User tries to toggle calendar switch ON
 3. `reconnectCalendar()` returns `requiresReauth: true`
-4. `signInSilently()` returns stale account
-5. `exchangeCalendarAuthCode()` rejects stale code
-6. App detects "expired" error
-7. App calls `clearStaleSession()`
-8. UI shows "Please logout and login again"
-9. User logs out → logs in
-10. User toggles switch → Consent screen appears
-11. Fresh tokens → Works!
+4. On iOS: `disconnect()` clears stale session first
+5. `signIn()` shows consent screen (fresh credentials needed)
+6. If user completes consent → Works!
+7. If user cancels → Show "Please logout and login again" message
 
-### Flow 4: Revoke While Logged Out
-1. Calendar is connected
-2. User logs out
-3. User revokes access in Google Settings
-4. User logs in
-5. `verifyConnectionStatus()` is called
-6. Backend detects invalid tokens
-7. Backend sets `googleCalendarConnected = false`
-8. UI shows "Disconnected"
+### Flow 5: Disconnect Calendar
+1. User toggles calendar switch OFF
+2. `CalendarService.disconnect()` is called
+3. Backend Cloud Function:
+   - Deletes all calendar events for user's tasks
+   - Sets `googleCalendarConnected = false`
+   - **Preserves tokens** for easy reconnect later
+4. UI shows "Disconnected"
+
+### Flow 6: Account Deletion Cleanup
+1. User initiates account deletion
+2. `deleteAllUserCalendarEvents()` is called
+3. All calendar events associated with user's tasks are deleted
+4. User document is deleted (including tokens)
+5. Firebase Auth account is deleted
 
 ---
 
-## 7. Edge Case Handling
+## 7. Platform-Specific Considerations
+
+> **CRITICAL:** iOS and Android behave differently with Google Sign-In and serverAuthCode retrieval. The CalendarService has platform-specific code to handle these differences.
+
+### iOS Behavior
+
+| Behavior | iOS | Android |
+|----------|-----|---------|
+| `signInSilently()` returns `serverAuthCode` | ❌ Never | ✅ Yes |
+| Cached session interferes with fresh consent | ✅ Yes | ❌ No |
+| `disconnect()` required before reauth | ✅ Yes | ❌ No |
+
+### iOS-Specific Code Patterns
+
+```dart
+// 1. iOS requires disconnect() when requiresReauth is true
+if (Platform.isIOS && requiresReauth) {
+  await _googleSignIn.disconnect();
+}
+
+// 2. iOS signInSilently() never returns serverAuthCode - must force signIn()
+if (account != null && account.serverAuthCode == null) {
+  account = await _googleSignIn.signIn();
+}
+
+// 3. iOS fallback: disconnect and retry if still no serverAuthCode
+if (Platform.isIOS && account != null && account.serverAuthCode == null) {
+  await _googleSignIn.disconnect();
+  account = await _googleSignIn.signIn();
+}
+```
+
+### Why iOS Behaves Differently
+
+1. **iOS keychain caching:** iOS aggressively caches Google session in the secure keychain. When access is revoked externally, the cache becomes stale.
+
+2. **No incremental scopes on iOS:** Android's Google Sign-In SDK supports incremental authorization. iOS does not - it requires a full new sign-in to get serverAuthCode after initial consent.
+
+3. **signInSilently limitation:** iOS's `signInSilently()` restores the *session* but not the *authorization code*. This is by design - auth codes are one-time use.
+
+### Testing Platform-Specific Flows
+
+**iOS Testing:**
+1. Sign in → Calendar connected
+2. Revoke access at [myaccount.google.com/permissions](https://myaccount.google.com/permissions)
+3. Kill app completely
+4. Reopen app → Toggle calendar switch
+5. **Expected:** Consent screen appears (not error)
+
+**Android Testing:**
+Same as above, but `signInSilently()` may return serverAuthCode directly without showing consent screen (if app is still authorized).
+
+---
+
+## 8. Edge Case Handling
 
 | Edge Case | Detection | Resolution |
 |-----------|-----------|------------|
@@ -1277,16 +1791,25 @@ case CalendarConnectResult.accessRevoked:
 | Dormant user (6+ months) | Monthly `maintainCalendarTokens` job | Proactively refreshes or clears tokens |
 | Account deletion | User deletes account | Call `deleteAllUserCalendarEvents()` before deletion |
 | Multi-assignee tasks | Task has multiple assignees | Each assignee gets own event, stored in `assignments` subcollection |
+| iOS no serverAuthCode | `signInSilently()` returns account without code | Force `signIn()`, retry with `disconnect()` if still null |
+| iOS cached stale session | `requiresReauth=true` from backend | `disconnect()` before attempting consent |
+| Network timeout | CloudFunction exceeds 60s | `CloudFunctionTimeoutException` handling |
 
 ---
 
-## 8. Testing Checklist
+## 9. Testing Checklist
+
+### Upfront Consent (v2.1)
+- [ ] First Google Sign-In shows calendar permission in consent screen
+- [ ] After sign-in, calendar tokens are exchanged in background
+- [ ] Calendar toggle works instantly (no dialog) after login
 
 ### Happy Path
 - [ ] First time connect shows consent, then works
 - [ ] Disconnect removes events and updates UI
 - [ ] Logout/login preserves connection status
 - [ ] Task creation creates ONE calendar event
+- [ ] Smart reconnect works (no dialog for returning users)
 
 ### Edge Cases
 - [ ] Revoke while using app → shows "logout and login" message
@@ -1294,9 +1817,19 @@ case CalendarConnectResult.accessRevoked:
 - [ ] Revoke while logged out → auto-detects on next login
 - [ ] No infinite loops in logs
 
+### iOS-Specific
+- [ ] iOS: Toggle calendar after fresh login → works without dialog
+- [ ] iOS: Revoke access → retry shows consent screen (not error)
+- [ ] iOS: `signInSilently()` fallback to `signIn()` works
+- [ ] iOS: Multiple retry attempts don't cause issues
+
+### Android-Specific
+- [ ] Android: `signInSilently()` returns serverAuthCode when authorized
+- [ ] Android: Incremental scope authorization works
+
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Error: "Auth code expired or already used"
 **Cause:** The `serverAuthCode` from GoogleSignIn was already exchanged once.
@@ -1313,3 +1846,23 @@ case CalendarConnectResult.accessRevoked:
 ### Calendar shows "Connected" but events don't sync
 **Cause:** Tokens are invalid but flag wasn't reset.
 **Fix:** The `verifyCalendarAccess()` function should prevent this. Check it's being called.
+
+### iOS: "Configuration Error" when toggling calendar
+**Cause:** `serverAuthCode` is null because iOS `signInSilently()` doesn't return it.
+**Fix:** The v2.1 code has fallback logic. Ensure you're using the latest CalendarService with Platform.isIOS checks.
+
+### iOS: Calendar toggle shows Google consent even after login
+**Cause:** Token exchange during login failed silently.
+**Fix:** Check AuthProvider logs for "Calendar token exchange failed" messages. Ensure `exchangeCalendarAuthCode()` is being called.
+
+### iOS: Infinite "Please logout and login again" loop
+**Cause:** Stale session not being cleared properly.
+**Fix:** Ensure `clearStaleSession()` calls `_googleSignIn.disconnect()` (not just `signOut()`).
+
+### Calendar sync stopped after 6 months
+**Cause:** Refresh token expired (6-month Google policy for unverified apps).
+**Fix:** Complete Google OAuth verification to get indefinite refresh tokens. Or run `maintainCalendarTokens` job more frequently.
+
+### "No serverAuthCode" error on Android
+**Cause:** `serverClientId` not configured correctly in GoogleSignIn.
+**Fix:** Verify `EnvConfig.googleWebClientId` matches the Web Client ID from Google Cloud Console (not Android client ID).

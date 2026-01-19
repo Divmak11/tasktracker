@@ -12,6 +12,9 @@ import '../../data/providers/auth_provider.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
 
+/// Tracks which sign-in method is currently loading
+enum _SignInMethod { google, apple }
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -20,7 +23,12 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  bool _isLoading = false;
+  /// Which sign-in method is currently loading (null = none)
+  _SignInMethod? _loadingMethod;
+
+  bool get _isLoading => _loadingMethod != null;
+  bool get _isGoogleLoading => _loadingMethod == _SignInMethod.google;
+  bool get _isAppleLoading => _loadingMethod == _SignInMethod.apple;
 
   @override
   Widget build(BuildContext context) {
@@ -166,7 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
                       ),
-                      isLoading: _isLoading,
+                      isLoading: _isGoogleLoading,
                       isFullWidth: true,
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -180,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _isLoading ? () {} : _handleAppleSignIn,
                       type: AppButtonType.secondary,
                       icon: Icons.apple_rounded,
-                      isLoading: _isLoading,
+                      isLoading: _isAppleLoading,
                       isFullWidth: true,
                     ),
 
@@ -325,7 +333,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-    setState(() => _isLoading = true);
+    setState(() => _loadingMethod = _SignInMethod.google);
 
     try {
       await context.read<AuthProvider>().signInWithGoogle();
@@ -341,13 +349,13 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() => _loadingMethod = null);
       }
     }
   }
 
   Future<void> _handleAppleSignIn() async {
-    setState(() => _isLoading = true);
+    setState(() => _loadingMethod = _SignInMethod.apple);
 
     try {
       await context.read<AuthProvider>().signInWithApple();
@@ -363,7 +371,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() => _loadingMethod = null);
       }
     }
   }

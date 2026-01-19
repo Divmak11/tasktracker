@@ -23,11 +23,11 @@ enum VoiceInputStatus {
 
 /// Enum for language preference
 enum VoiceLanguage {
-  /// Hindi (for Hinglish and Hindi input)
+  /// Hindi - Devanagari script for pure Hindi input (नमस्ते, करना)
   hindi('hi-IN', 'हिन्दी'),
-  /// English (India)
+  /// English (India) - Best for Hinglish (Hindi words in Latin script: namaste, karna)
   englishIndia('en-IN', 'English (India)'),
-  /// English (US)
+  /// English (US) - American English pronunciation
   englishUS('en-US', 'English (US)');
 
   const VoiceLanguage(this.localeId, this.displayName);
@@ -55,7 +55,7 @@ class SpeechService {
   bool _isInitialized = false;
   bool _isAvailable = false;
   VoiceInputStatus _status = VoiceInputStatus.idle;
-  VoiceLanguage _selectedLanguage = VoiceLanguage.hindi;
+  VoiceLanguage _selectedLanguage = VoiceLanguage.englishIndia;
   List<LocaleName> _availableLocales = [];
   String _lastError = '';
   
@@ -121,12 +121,14 @@ class SpeechService {
     }
   }
 
-  /// Check and request microphone permission
+  /// Check microphone permission status
   /// 
-  /// Returns true if permission is granted.
+  /// Note: Permission is requested at app startup in main.dart.
+  /// This method only checks the current status.
+  /// Returns the current permission state.
   Future<PermissionCheckResult> checkAndRequestPermission() async {
     try {
-      // Check microphone permission
+      // Check microphone permission status
       final micStatus = await Permission.microphone.status;
       
       if (micStatus.isGranted) {
@@ -137,16 +139,8 @@ class SpeechService {
         return PermissionCheckResult.permanentlyDenied;
       }
       
-      // Request permission
-      final result = await Permission.microphone.request();
-      
-      if (result.isGranted) {
-        return PermissionCheckResult.granted;
-      } else if (result.isPermanentlyDenied) {
-        return PermissionCheckResult.permanentlyDenied;
-      } else {
-        return PermissionCheckResult.denied;
-      }
+      // Permission was denied (either initially or after being requested at startup)
+      return PermissionCheckResult.denied;
     } catch (e) {
       _lastError = 'Permission check failed: $e';
       if (kDebugMode) {

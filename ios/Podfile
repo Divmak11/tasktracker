@@ -70,6 +70,28 @@ post_install do |installer|
       if config.name == 'Debug'
         config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'
       end
+      
+      # 9. Enable permission_handler permissions for iOS
+      # Required for permission_handler to work on iOS
+      # See: https://pub.dev/packages/permission_handler#setup
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        
+        ## dart: PermissionGroup.camera
+        'PERMISSION_CAMERA=1',
+        
+        ## dart: PermissionGroup.microphone (REQUIRED for voice input)
+        'PERMISSION_MICROPHONE=1',
+        
+        ## dart: PermissionGroup.speech (REQUIRED for speech recognition)
+        'PERMISSION_SPEECH_RECOGNIZER=1',
+        
+        ## dart: PermissionGroup.photos
+        'PERMISSION_PHOTOS=1',
+        
+        ## dart: PermissionGroup.notification
+        'PERMISSION_NOTIFICATIONS=1',
+      ]
     end
   end
   

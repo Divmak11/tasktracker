@@ -392,29 +392,53 @@ class _VoiceInputButtonState extends State<VoiceInputButton>
   }
 
   void _showPermissionDeniedDialog() {
+    final theme = Theme.of(context);
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         icon: Icon(
           Icons.mic_off,
-          color: Theme.of(context).colorScheme.error,
+          color: theme.colorScheme.error,
           size: 48,
         ),
-        title: const Text('Microphone Permission Required'),
-        content: const Text(
-          'Voice input requires microphone access. Please enable microphone permission in your device settings.',
+        title: const Text('Microphone Access Required'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Voice input requires microphone permission to convert your speech to text.',
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'To enable:',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '1. Tap "Open Settings" below\n'
+              '2. Find "Todo Planner" app\n'
+              '3. Enable "Microphone" permission\n'
+              '4. Return to the app',
+              style: TextStyle(height: 1.5),
+            ),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          FilledButton.icon(
             onPressed: () {
               Navigator.of(context).pop();
               openAppSettings();
             },
-            child: const Text('Open Settings'),
+            icon: const Icon(Icons.settings, size: 18),
+            label: const Text('Open Settings'),
           ),
         ],
       ),
