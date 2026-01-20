@@ -198,7 +198,7 @@ class CloudFunctionsService {
         'updates': {
           if (title != null) 'title': title,
           if (subtitle != null) 'subtitle': subtitle,
-          if (deadline != null) 'deadline': deadline.toIso8601String(),
+          if (deadline != null) 'deadline': deadline.toUtc().toIso8601String(),
         },
       });
       return Map<String, dynamic>.from(result.data);
@@ -310,10 +310,13 @@ class CloudFunctionsService {
   // ============================================
 
   /// Disconnect Google Calendar
+  /// Uses extended timeout since cleanup may take longer with many events
   Future<Map<String, dynamic>> disconnectCalendar() async {
-    final callable = _functions.httpsCallable('disconnectCalendar');
-    final result = await callable.call();
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('disconnectCalendar');
+      final result = await callable.call();
+      return Map<String, dynamic>.from(result.data);
+    }, 'disconnectCalendar', timeout: const Duration(seconds: 60));
   }
 
   // ============================================
@@ -409,6 +412,7 @@ class CloudFunctionsService {
     required DateTime endDate,
     String? teamId,
     String? status,
+    String? userId, // Add member filter
   }) async {
     final callable = _functions.httpsCallable('exportReport');
     final result = await callable.call({
@@ -416,6 +420,7 @@ class CloudFunctionsService {
       'endDate': endDate.toIso8601String(),
       if (teamId != null) 'teamId': teamId,
       if (status != null) 'status': status,
+      if (userId != null) 'userId': userId,
     });
     return Map<String, dynamic>.from(result.data);
   }
@@ -429,9 +434,24 @@ class CloudFunctionsService {
   /// This is called after GoogleSignIn returns a serverAuthCode.
   /// The backend exchanges this code for a REAL refresh_token that allows
   /// automatic token refresh without user interaction.
+  /// Uses extended timeout since it includes token verification.
   Future<Map<String, dynamic>> exchangeCalendarAuthCode(String authCode) async {
-    final callable = _functions.httpsCallable('exchangeCalendarAuthCode');
-    final result = await callable.call({'authCode': authCode});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('exchangeCalendarAuthCode');
+      final result = await callable.call({'authCode': authCode});
+      return Map<String, dynamic>.from(result.data);
+    }, 'exchangeCalendarAuthCode', timeout: const Duration(seconds: 45));
+  }
+
+  /// Reconnect Google Calendar using existing tokens (Smart Reconnect).
+  ///
+  /// This attempts to reuse the refresh token stored in the backend
+  /// to avoid forcing the user through the Google Sign-In dialog again.
+  Future<Map<String, dynamic>> reconnectCalendar() async {
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('reconnectCalendar');
+      final result = await callable.call();
+      return Map<String, dynamic>.from(result.data);
+    }, 'reconnectCalendar', timeout: const Duration(seconds: 45));
   }
 }

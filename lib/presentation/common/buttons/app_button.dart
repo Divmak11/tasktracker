@@ -11,6 +11,7 @@ class AppButton extends StatelessWidget {
   final bool isLoading;
   final bool isFullWidth;
   final IconData? icon;
+  final Widget? leadingWidget;
   final Color? customColor;
 
   const AppButton({
@@ -21,6 +22,7 @@ class AppButton extends StatelessWidget {
     this.isLoading = false,
     this.isFullWidth = true,
     this.icon,
+    this.leadingWidget,
     this.customColor,
   }) : assert(
          type == AppButtonType.icon ? icon != null : true,
@@ -51,7 +53,10 @@ class AppButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (icon != null && type != AppButtonType.icon) ...[
+                if (leadingWidget != null && type != AppButtonType.icon) ...[
+                  leadingWidget!,
+                  const SizedBox(width: AppSpacing.sm),
+                ] else if (icon != null && type != AppButtonType.icon) ...[
                   Icon(icon, size: AppIconSize.small),
                   const SizedBox(width: AppSpacing.sm),
                 ],

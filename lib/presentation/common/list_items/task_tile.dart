@@ -13,6 +13,8 @@ class TaskTile extends StatelessWidget {
   final UserModel? creator;
   final int remarksCount;
   final List<String>? additionalAssigneeNames;
+  final bool isAssigneeLoading;
+  final bool isCreatorLoading;
   final VoidCallback? onTap;
 
   const TaskTile({
@@ -22,6 +24,8 @@ class TaskTile extends StatelessWidget {
     this.creator,
     this.remarksCount = 0,
     this.additionalAssigneeNames,
+    this.isAssigneeLoading = false,
+    this.isCreatorLoading = false,
     this.onTap,
   });
 
@@ -50,16 +54,16 @@ class TaskTile extends StatelessWidget {
             border: Border.all(
               color:
                   isOverdue
-                      ? Colors.red.withValues(alpha: 0.5)
+                      ? Colors.red.withOpacity(0.5)
                       : isUrgent
-                      ? Colors.orange.withValues(alpha: 0.5)
+                      ? Colors.orange.withOpacity(0.5)
                       : (isDark ? AppColors.neutral700 : AppColors.neutral200),
               width: isOverdue || isUrgent ? 1.5 : 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: (isDark ? Colors.black : Colors.grey).withValues(
-                  alpha: 0.08,
+                color: (isDark ? Colors.black : Colors.grey).withOpacity(
+                  0.08,
                 ),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
@@ -168,14 +172,22 @@ class TaskTile extends StatelessWidget {
                                   fontSize: 9,
                                 ),
                               ),
-                              Text(
-                                _buildAssigneeLabel(),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.w500,
+                                Text(
+                                  _buildAssigneeLabel(),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    fontStyle:
+                                        (assignee == null &&
+                                                !isAssigneeLoading &&
+                                                task
+                                                    .primaryAssigneeId
+                                                    .isNotEmpty)
+                                            ? FontStyle.italic
+                                            : null,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
                             ],
                           ),
                         ),
@@ -199,9 +211,13 @@ class TaskTile extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          creator!.name.split(' ').first,
+                          _getCreatorDisplayName(),
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w500,
+                            fontStyle:
+                                (creator == null && !isCreatorLoading)
+                                    ? FontStyle.italic
+                                    : null,
                             color:
                                 isDark
                                     ? AppColors.neutral300
@@ -220,23 +236,45 @@ class TaskTile extends StatelessWidget {
     );
   }
 
+  String _getCreatorDisplayName() {
+    if (creator != null) return creator!.name.split(' ').first;
+    if (isCreatorLoading) return 'Loading...';
+    return 'Deleted User';
+  }
+
   String _buildAssigneeLabel() {
+    final String baseName;
+    final bool isItalic;
+
+    if (assignee != null) {
+      baseName = assignee!.name.split(' ').first;
+      isItalic = false;
+    } else if (isAssigneeLoading) {
+      baseName = 'Loading...';
+      isItalic = false;
+    } else if (task.primaryAssigneeId.isNotEmpty) {
+      baseName = 'Deleted User';
+      isItalic = true;
+    } else {
+      baseName = 'Unassigned';
+      isItalic = false;
+    }
+
     // Handle multi-assignee tasks
     if (task.isMultiAssignee) {
       final count = task.assigneeIds.length;
       if (count > 1) {
-        final firstName = assignee?.name.split(' ').first ?? 'Unknown';
-        return '$firstName +${count - 1} more';
+        return '$baseName +${count - 1} more';
       }
     }
 
     // Handle legacy additional assignees display
-    final name = assignee?.name ?? 'Unknown';
     if (additionalAssigneeNames != null &&
         additionalAssigneeNames!.isNotEmpty) {
-      return '$name +${additionalAssigneeNames!.length}';
+      return '$baseName +${additionalAssigneeNames!.length}';
     }
-    return name;
+
+    return baseName;
   }
 
   Widget _buildAvatar(ThemeData theme, UserModel? user, double radius) {

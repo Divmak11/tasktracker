@@ -13,6 +13,7 @@ import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/notification_repository.dart';
 import '../../data/repositories/approval_repository.dart';
 import '../../data/providers/auth_provider.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/services/calendar_service.dart';
 import 'widgets/task_card.dart';
 
@@ -24,7 +25,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   late TabController _tabController;
   final TaskRepository _taskRepository = TaskRepository();
   final UserRepository _userRepository = UserRepository();
@@ -41,8 +42,8 @@ class _HomeScreenState extends State<HomeScreen>
   Stream<List<ApprovalRequestModel>>? _pendingReschedulesStream;
 
   // Cache user data to avoid N+1 queries (for creators and assignees)
-  final Map<String, UserModel?> _userCache = {};
-
+  // Now using DataCacheProvider for shared state across navigation branches
+  
   // Filter state for each tab - stores selected assignee ID
   String? _ongoingFilterUserId;
   String? _pastFilterUserId;
@@ -55,12 +56,19 @@ class _HomeScreenState extends State<HomeScreen>
   static const Duration _calendarRefreshCooldown = Duration(minutes: 30);
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    // Show calendar guide dialog on first visit
+    // Show calendar guide dialog on first visit with a safety delay to avoid GlobalKey collisions
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showCalendarGuideIfNeeded();
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _showCalendarGuideIfNeeded();
+        }
+      });
       _refreshCalendarTokenIfNeeded();
     });
   }
@@ -232,6 +240,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     final authProvider = context.watch<AuthProvider>();
     final currentUser = authProvider.currentUser;
 
@@ -250,10 +259,9 @@ class _HomeScreenState extends State<HomeScreen>
               context.push('/calendar');
             },
           ),
-          StreamBuilder<List<ApprovalRequestModel>>(
-            stream: _getPendingReschedulesStream(currentUser.id),
-            builder: (context, snapshot) {
-              final pendingCount = snapshot.data?.length ?? 0;
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
+              final pendingCount = cache.pendingReschedulesCount;
               return Stack(
                 children: [
                   IconButton(
@@ -292,10 +300,9 @@ class _HomeScreenState extends State<HomeScreen>
               );
             },
           ),
-          StreamBuilder<int>(
-            stream: _getUnreadCountStream(currentUser.id),
-            builder: (context, snapshot) {
-              final unreadCount = snapshot.data ?? 0;
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) {
+              final unreadCount = cache.unreadCount;
               return Stack(
                 children: [
                   IconButton(
@@ -434,13 +441,15 @@ class _HomeScreenState extends State<HomeScreen>
                 ? tasks.where((t) => t.isAssignee(selectedUserId)).toList()
                 : tasks;
 
-        return FutureBuilder<void>(
-          future: _prefetchUsers(userIds),
-          builder: (context, _) {
+        // Trigger async prefetch via Global Cache Provider
+        context.read<DataCacheProvider>().prefetchUsers(userIds);
+
+        return Consumer<DataCacheProvider>(
+          builder: (context, cache, _) {
             // Build filter dropdown items from cached users
             final filterUsers =
                 uniqueAssigneeIds
-                    .map((id) => _userCache[id])
+                    .map((id) => cache.getUser(id))
                     .whereType<UserModel>()
                     .toList();
 
@@ -556,8 +565,8 @@ class _HomeScreenState extends State<HomeScreen>
                                 final task = filteredTasks[index];
                                 return TaskCard(
                                   task: task,
-                                  creator: _userCache[task.createdBy],
-                                  assignee: _userCache[task.primaryAssigneeId],
+                                  creator: cache.getUser(task.createdBy),
+                                  assignee: cache.getUser(task.primaryAssigneeId),
                                 );
                               },
                             ),
@@ -569,21 +578,6 @@ class _HomeScreenState extends State<HomeScreen>
         );
       },
     );
-  }
-
-  // Batch fetch users to avoid N+1 queries
-  Future<void> _prefetchUsers(Set<String> userIds) async {
-    final uncachedIds =
-        userIds.where((id) => !_userCache.containsKey(id)).toList();
-    if (uncachedIds.isEmpty) return;
-
-    // Fetch all uncached users in parallel
-    final futures = uncachedIds.map((id) => _userRepository.getUser(id));
-    final users = await Future.wait(futures);
-
-    for (int i = 0; i < uncachedIds.length; i++) {
-      _userCache[uncachedIds[i]] = users[i];
-    }
   }
 
   Widget _buildEmptyState(BuildContext context, String message) {

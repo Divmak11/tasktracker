@@ -53,7 +53,7 @@ class OverdueTasksScreen extends StatelessWidget {
                   Icon(
                     Icons.check_circle_outline,
                     size: 80,
-                    color: Colors.green.withValues(alpha: 0.5),
+                    color: Colors.green.withOpacity(0.5),
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   Text(
@@ -131,13 +131,13 @@ class OverdueTasksScreen extends StatelessWidget {
                                       vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: Colors.red.withValues(alpha: 0.1),
+                                      color: Colors.red.withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(
                                         AppRadius.small,
                                       ),
                                       border: Border.all(
-                                        color: Colors.red.withValues(
-                                          alpha: 0.3,
+                                        color: Colors.red.withOpacity(
+                                          0.3,
                                         ),
                                       ),
                                     ),

@@ -7,6 +7,9 @@ import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
 import '../repositories/user_repository.dart';
 import '../services/fcm_service.dart';
+import '../services/calendar_service.dart';
+import '../services/cloud_functions_service.dart';
+
 
 class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   final AuthRepository _authRepository;
@@ -17,6 +20,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   firebase_auth.User? _firebaseUser; // Track Firebase auth state separately
   bool _isLoading = true; // Start as true to show splash while checking auth
   bool _isInitialLoad = true; // Separate flag for initial bootstrap
+  bool _calendarVerifiedThisSession = false; // Prevent repeated verification calls
   StreamSubscription? _authStateSubscription;
   StreamSubscription? _userDataSubscription;
 
@@ -207,6 +211,22 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
                 _fcmService.initialize(userId);
               }
 
+              // Proactively verify calendar connection if user has it enabled
+              // This detects if access was revoked while user was logged out
+              // Only verify ONCE per session to avoid infinite loop
+              if (user?.googleCalendarConnected == true && !_calendarVerifiedThisSession) {
+                _calendarVerifiedThisSession = true;
+                CalendarService().verifyConnectionStatus().then((isValid) {
+                  if (!isValid) {
+                    debugPrint('⚠️ Calendar connection was invalidated, refreshing user data...');
+                    // Backend already set googleCalendarConnected = false
+                    // The stream will automatically update with the new value
+                  }
+                }).catchError((e) {
+                  debugPrint('❌ Calendar verification error: $e');
+                });
+              }
+
               notifyListeners();
             },
             onError: (error) {
@@ -227,14 +247,32 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
   }
 
   /// Sign in with Google
+  /// Calendar consent is included in sign-in flow for seamless toggle experience
   Future<void> signInWithGoogle() async {
     debugPrint('🔐 Starting Google Sign-In...');
     _isLoading = true;
     notifyListeners();
 
     try {
-      await _authRepository.signInWithGoogle();
+      final result = await _authRepository.signInWithGoogle();
       debugPrint('✅ Google Sign-In successful');
+      
+      // Exchange serverAuthCode for calendar tokens immediately
+      // This enables seamless calendar toggle without showing account picker again
+      if (result.serverAuthCode != null) {
+        debugPrint('📅 Exchanging calendar auth code...');
+        try {
+          final cloudFunctions = CloudFunctionsService();
+          await cloudFunctions.exchangeCalendarAuthCode(result.serverAuthCode!);
+          debugPrint('✅ Calendar tokens exchanged and stored');
+        } catch (calendarError) {
+          // Non-fatal: User can still use the app, calendar toggle will retry
+          debugPrint('⚠️ Calendar token exchange failed (non-fatal): $calendarError');
+        }
+      } else {
+        debugPrint('ℹ️ No serverAuthCode received (calendar connection will require manual toggle)');
+      }
+      
       // User data will be loaded automatically via auth state listener
 
       // Wait for user data to actually load (with timeout)
@@ -262,6 +300,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       rethrow;
     }
   }
+
 
   /// Wait for user data to load with timeout
   Future<void> _waitForUserData() async {
@@ -297,6 +336,27 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
+  /// Sign in with Email and Password (for Reviewers only)
+  Future<void> signInWithEmail(String email, String password) async {
+    debugPrint('🔐 Starting Email Sign-In...');
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      await _authRepository.signInWithEmailAndPassword(email, password);
+      debugPrint('✅ Email Sign-In successful');
+      // User data will be loaded automatically via auth state listener
+
+      // Wait for user data to actually load (with timeout)
+      await _waitForUserData();
+    } catch (e) {
+      debugPrint('❌ Email Sign-In failed: $e');
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   /// Sign out
   Future<void> logout() async {
     _isLoading = true;
@@ -317,9 +377,11 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     _firebaseUser = null;
     _currentUser = null;
     _isLoading = false;
+    _calendarVerifiedThisSession = false; // Reset so we verify again on next login
     _userDataSubscription?.cancel();
     _userDataSubscription = null;
     _fcmService.reset(); // Reset FCM state on logout
+    CalendarService().reset(); // Reset calendar state on logout
     notifyListeners();
   }
 

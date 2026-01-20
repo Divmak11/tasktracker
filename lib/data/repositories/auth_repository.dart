@@ -1,5 +1,14 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/calendar/v3.dart' as calendar;
+import '../../core/constants/env_config.dart';
+
+/// Result of Google sign-in containing Firebase credential and optional serverAuthCode
+/// for calendar token exchange
+typedef GoogleSignInResult = ({
+  firebase_auth.UserCredential credential,
+  String? serverAuthCode,
+});
 
 class AuthRepository {
   final firebase_auth.FirebaseAuth _firebaseAuth;
@@ -9,7 +18,12 @@ class AuthRepository {
     firebase_auth.FirebaseAuth? firebaseAuth,
     GoogleSignIn? googleSignIn,
   }) : _firebaseAuth = firebaseAuth ?? firebase_auth.FirebaseAuth.instance,
-       _googleSignIn = googleSignIn ?? GoogleSignIn();
+       // Include calendar scopes and serverClientId for upfront consent
+       // This enables token exchange during sign-in flow
+       _googleSignIn = googleSignIn ?? GoogleSignIn(
+         scopes: ['email', calendar.CalendarApi.calendarEventsScope],
+         serverClientId: EnvConfig.googleWebClientId,
+       );
 
   /// Stream of Firebase auth state changes
   Stream<firebase_auth.User?> get authStateChanges =>
@@ -18,15 +32,19 @@ class AuthRepository {
   /// Get current Firebase user
   firebase_auth.User? get currentFirebaseUser => _firebaseAuth.currentUser;
 
-  /// Sign in with Google
-  Future<firebase_auth.UserCredential> signInWithGoogle() async {
+  /// Sign in with Google (includes calendar consent for seamless toggle experience)
+  /// Returns both Firebase credential and serverAuthCode for calendar token exchange
+  Future<GoogleSignInResult> signInWithGoogle() async {
     try {
-      // Trigger Google Sign-In flow
+      // Trigger Google Sign-In flow (now includes calendar scope)
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
 
       if (googleUser == null) {
         throw Exception('Google Sign-In was cancelled');
       }
+
+      // Capture serverAuthCode for calendar token exchange
+      final serverAuthCode = googleUser.serverAuthCode;
 
       // Obtain auth details
       final GoogleSignInAuthentication googleAuth =
@@ -39,11 +57,14 @@ class AuthRepository {
       );
 
       // Sign in to Firebase
-      return await _firebaseAuth.signInWithCredential(credential);
+      final userCredential = await _firebaseAuth.signInWithCredential(credential);
+      
+      return (credential: userCredential, serverAuthCode: serverAuthCode);
     } catch (e) {
       throw Exception('Google Sign-In failed: $e');
     }
   }
+
 
   /// Sign in with Apple (iOS/macOS only)
   Future<firebase_auth.UserCredential> signInWithApple() async {
@@ -55,6 +76,21 @@ class AuthRepository {
       return await _firebaseAuth.signInWithProvider(appleProvider);
     } catch (e) {
       throw Exception('Apple Sign-In failed: $e');
+    }
+  }
+
+  /// Sign in with Email and Password (for Reviewers only)
+  Future<firebase_auth.UserCredential> signInWithEmailAndPassword(
+    String email,
+    String password,
+  ) async {
+    try {
+      return await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      throw Exception('Email Sign-In failed: $e');
     }
   }
 

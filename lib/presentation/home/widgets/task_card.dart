@@ -29,7 +29,7 @@ class TaskCard extends StatelessWidget {
         decoration: BoxDecoration(
           border:
               isOverdue
-                  ? Border(left: BorderSide(color: Colors.red, width: 4))
+                  ? const Border(left: BorderSide(color: Colors.red, width: 4))
                   : null,
         ),
         padding: const EdgeInsets.all(AppSpacing.md),
@@ -103,72 +103,58 @@ class TaskCard extends StatelessWidget {
             ),
 
             // Creator and Assignee Row
-            if (creator != null || assignee != null) ...[
-              const SizedBox(height: AppSpacing.xs),
-              Row(
-                children: [
-                  // Created by
-                  if (creator != null) ...[
-                    Icon(
-                      Icons.edit_outlined,
-                      size: 14,
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                // Created by
+                Icon(
+                  Icons.edit_outlined,
+                  size: 14,
+                  color: isDark ? AppColors.neutral500 : AppColors.neutral500,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    creator?.name ?? 'Deleted User',
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color:
-                          isDark ? AppColors.neutral500 : AppColors.neutral500,
+                          isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      fontSize: 11,
+                      fontStyle: creator == null ? FontStyle.italic : null,
                     ),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        creator!.name,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color:
-                              isDark
-                                  ? AppColors.neutral400
-                                  : AppColors.neutral600,
-                          fontSize: 11,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                    ),
-                  ],
-                  // Separator
-                  if (creator != null && assignee != null) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    Icon(
-                      Icons.arrow_forward,
-                      size: 12,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Icon(
+                  Icons.arrow_forward,
+                  size: 12,
+                  color: isDark ? AppColors.neutral600 : AppColors.neutral400,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                // Assigned to
+                Icon(
+                  Icons.person_outline,
+                  size: 14,
+                  color: isDark ? AppColors.neutral500 : AppColors.neutral500,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    assignee?.name ?? 'Deleted User',
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color:
-                          isDark ? AppColors.neutral600 : AppColors.neutral400,
+                          isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      fontSize: 11,
+                      fontStyle: assignee == null ? FontStyle.italic : null,
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                  ],
-                  // Assigned to
-                  if (assignee != null) ...[
-                    Icon(
-                      Icons.person_outline,
-                      size: 14,
-                      color:
-                          isDark ? AppColors.neutral500 : AppColors.neutral500,
-                    ),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        assignee!.name,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color:
-                              isDark
-                                  ? AppColors.neutral400
-                                  : AppColors.neutral600,
-                          fontSize: 11,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -210,7 +196,7 @@ class TaskCard extends StatelessWidget {
         vertical: 4,
       ),
       decoration: BoxDecoration(
-        color: badgeColor.withValues(alpha: 0.1),
+        color: badgeColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(AppRadius.small),
         border: Border.all(color: badgeColor, width: 1),
       ),
@@ -229,20 +215,16 @@ class TaskCard extends StatelessWidget {
     final difference = deadline.difference(now);
 
     if (difference.isNegative) {
-      // Overdue
       if (difference.inDays.abs() == 0) {
         return 'Due ${DateFormat('h:mm a').format(deadline)}';
       } else {
         return 'Due ${DateFormat('MMM d, h:mm a').format(deadline)}';
       }
     } else if (difference.inDays == 0) {
-      // Today
       return 'Due today at ${DateFormat('h:mm a').format(deadline)}';
     } else if (difference.inDays == 1) {
-      // Tomorrow
       return 'Due tomorrow at ${DateFormat('h:mm a').format(deadline)}';
     } else {
-      // Future date
       return 'Due ${DateFormat('MMM d, h:mm a').format(deadline)}';
     }
   }

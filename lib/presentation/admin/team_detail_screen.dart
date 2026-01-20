@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/team_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/providers/auth_provider.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../common/cards/app_card.dart';
@@ -19,19 +21,15 @@ class TeamDetailScreen extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final teamRepository = TeamRepository();
     final userRepository = UserRepository();
+    final currentUser = context.watch<AuthProvider>().currentUser;
+
+    if (currentUser == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Team Details'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: () {
-              // Navigate to edit team screen
-              context.push('/admin/teams/$teamId/edit');
-            },
-          ),
-        ],
       ),
       body: StreamBuilder<TeamModel?>(
         stream: teamRepository.getTeamStream(teamId),
@@ -46,12 +44,56 @@ class TeamDetailScreen extends StatelessWidget {
 
           final team = teamSnapshot.data!;
 
+          // Access control: Only superAdmin or team members can view
+          final isSuperAdmin = currentUser.role == UserRole.superAdmin;
+          final isTeamMember = team.memberIds.contains(currentUser.id);
+          final hasAccess = isSuperAdmin || isTeamMember;
+
+          if (!hasAccess) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.lock_outline,
+                      size: 64,
+                      color: isDark ? AppColors.neutral600 : AppColors.neutral400,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Access Denied',
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'You are not a member of this team.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    ElevatedButton(
+                      onPressed: () => context.pop(),
+                      child: const Text('Go Back'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          // Edit permission: Only superAdmin or team admin can edit
+          final canEdit = isSuperAdmin || team.adminId == currentUser.id;
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Team Info
+                // Team Info Card with optional edit button
                 AppCard(
                   type: AppCardType.elevated,
                   child: Padding(
@@ -102,6 +144,13 @@ class TeamDetailScreen extends StatelessWidget {
                             ],
                           ),
                         ),
+                        // Edit button - only visible if canEdit
+                        if (canEdit)
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Edit Team',
+                            onPressed: () => context.push('/admin/teams/$teamId/edit'),
+                          ),
                       ],
                     ),
                   ),

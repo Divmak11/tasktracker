@@ -40,7 +40,7 @@ class TaskListItem extends StatelessWidget {
       border: isOverdue
           ? Border.all(
               color: (isDark ? AppColors.errorDark : AppColors.errorLight)
-                  .withValues(alpha: 0.5),
+                  .withOpacity(0.5),
               width: 1)
           : null,
       child: Column(

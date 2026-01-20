@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.4+6
 
 environment:
   sdk: ^3.7.0
@@ -38,10 +38,12 @@ dependencies:
   # Firebase
   firebase_core: ^3.8.1
   firebase_auth: ^5.3.4
+  firebase_analytics: ^11.3.6
   cloud_firestore: ^5.5.1
   firebase_messaging: ^15.1.6
   firebase_storage: ^12.3.8
   cloud_functions: ^5.2.3
+  firebase_remote_config: ^5.1.5  # App update version control
   
   # Google Sign-In & APIs
   google_sign_in: ^6.2.2
@@ -62,6 +64,7 @@ dependencies:
   permission_handler: ^11.3.0
   path_provider: ^2.1.4
   share_plus: ^10.1.2
+  package_info_plus: ^8.1.2  # Get app version for update checks
   
   # UI Components
   flutter_svg: ^2.0.16
@@ -85,6 +88,9 @@ dependencies:
   
   # Timezone (required for notifications)
   timezone: ^0.9.4
+  
+  # Voice Input (Speech Recognition)
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:
@@ -142,9 +148,12 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
 flutter_launcher_icons:
-  android: "ic_launcher"
+  android: true
   ios: true
   image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  remove_alpha_ios: true
   min_sdk_android: 23 # android min sdk min:16, default 21
   web:
     generate: true

@@ -10,7 +10,9 @@ import 'package:share_plus/share_plus.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/team_model.dart';
+import '../../../data/models/user_model.dart';
 import '../../../data/repositories/team_repository.dart';
+import '../../../data/repositories/user_repository.dart';
 import '../../../data/services/cloud_functions_service.dart';
 import '../../common/buttons/app_button.dart';
 
@@ -23,6 +25,7 @@ class ExportReportDialog extends StatefulWidget {
 
 class _ExportReportDialogState extends State<ExportReportDialog> {
   final TeamRepository _teamRepository = TeamRepository();
+  final UserRepository _userRepository = UserRepository();
 
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _endDate = DateTime.now();
@@ -33,10 +36,16 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
   List<TeamModel> _teams = [];
   bool _isLoadingTeams = true;
 
+  List<UserModel> _members = [];
+  bool _isLoadingMembers = true;
+
+  String _selectedMember = 'all';
+
   @override
   void initState() {
     super.initState();
     _loadTeams();
+    _loadMembers();
   }
 
   Future<void> _loadTeams() async {
@@ -48,6 +57,18 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
       });
     } catch (e) {
       setState(() => _isLoadingTeams = false);
+    }
+  }
+
+  Future<void> _loadMembers() async {
+    try {
+      final members = await _userRepository.getAllUsersStream().first;
+      setState(() {
+        _members = members;
+        _isLoadingMembers = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingMembers = false);
     }
   }
 
@@ -165,6 +186,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
         endDate: _endDate,
         teamId: _selectedTeam,
         status: _selectedStatus,
+        userId: _selectedMember != 'all' ? _selectedMember : null,
       );
 
       if (!mounted) return;
@@ -233,6 +255,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
         endDate: _endDate,
         teamId: _selectedTeam,
         status: _selectedStatus,
+        userId: _selectedMember != 'all' ? _selectedMember : null,
       );
 
       if (!mounted) return;
@@ -287,199 +310,248 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
         width: MediaQuery.of(context).size.width * 0.9,
         constraints: const BoxConstraints(maxWidth: 400),
         padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  'Export Report',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    'Export Report',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Date Range
+              Text(
+                'Date Range',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              InkWell(
+                onTap: _selectDateRange,
+                borderRadius: BorderRadius.circular(AppRadius.medium),
+                child: Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: isDark ? AppColors.neutral700 : AppColors.neutral300,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.date_range,
+                        color: isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          '${DateFormat('MMM d, yyyy').format(_startDate)} - ${DateFormat('MMM d, yyyy').format(_endDate)}',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right,
+                        color: isDark ? AppColors.neutral600 : AppColors.neutral400,
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Date Range
-            Text(
-              'Date Range',
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.bold,
               ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            InkWell(
-              onTap: _selectDateRange,
-              borderRadius: BorderRadius.circular(AppRadius.medium),
-              child: Container(
+              const SizedBox(height: AppSpacing.lg),
+
+              // Team Filter
+              Text(
+                'Team',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: _selectedMember != 'all' ? theme.disabledColor : null,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              DropdownButtonFormField<String>(
+                value: _selectedMember != 'all' ? 'all' : _selectedTeam,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                  helperText: _selectedMember != 'all'
+                      ? 'Team filter disabled when member is selected'
+                      : null,
+                ),
+                items: [
+                  const DropdownMenuItem(value: 'all', child: Text('All Teams')),
+                  if (_isLoadingTeams)
+                    const DropdownMenuItem(
+                      value: 'loading',
+                      enabled: false,
+                      child: Text('Loading teams...'),
+                    )
+                  else
+                    ..._teams.map(
+                      (team) => DropdownMenuItem(
+                        value: team.id,
+                        child: Text(team.name),
+                      ),
+                    ),
+                ],
+                onChanged: _selectedMember != 'all'
+                    ? null
+                    : (value) {
+                        if (value != null && value != 'loading') {
+                          setState(() => _selectedTeam = value);
+                        }
+                      },
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Status Filter
+              Text(
+                'Status',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              DropdownButtonFormField<String>(
+                value: _selectedStatus,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'all', child: Text('All Status')),
+                  DropdownMenuItem(value: 'ongoing', child: Text('Ongoing')),
+                  DropdownMenuItem(value: 'completed', child: Text('Completed')),
+                  DropdownMenuItem(value: 'cancelled', child: Text('Cancelled')),
+                  DropdownMenuItem(value: 'overdue', child: Text('Overdue')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedStatus = value);
+                  }
+                },
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Member Filter
+              Text(
+                'Member',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              DropdownButtonFormField<String>(
+                value: _selectedMember,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem(value: 'all', child: Text('All Members')),
+                  if (_isLoadingMembers)
+                    const DropdownMenuItem(
+                      value: 'loading',
+                      enabled: false,
+                      child: Text('Loading members...'),
+                    )
+                  else
+                    ..._members.map(
+                      (member) => DropdownMenuItem(
+                        value: member.id,
+                        child: Text(member.name),
+                      ),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value != null && value != 'loading') {
+                    setState(() {
+                      _selectedMember = value;
+                      if (value != 'all') {
+                        _selectedTeam = 'all';
+                      }
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: AppSpacing.xl),
+
+              // Info
+              Container(
                 padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
-                  border: Border.all(
-                    color: isDark ? AppColors.neutral700 : AppColors.neutral300,
-                  ),
+                  color: theme.colorScheme.primaryContainer.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(AppRadius.medium),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      Icons.date_range,
-                      color:
-                          isDark ? AppColors.neutral400 : AppColors.neutral600,
+                      Icons.info_outline,
+                      size: 16,
+                      color: theme.colorScheme.primary,
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Text(
-                        '${DateFormat('MMM d, yyyy').format(_startDate)} - ${DateFormat('MMM d, yyyy').format(_endDate)}',
-                        style: theme.textTheme.bodyMedium,
+                        'Report includes task details, assignees, and status history.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
-                    ),
-                    Icon(
-                      Icons.chevron_right,
-                      color:
-                          isDark ? AppColors.neutral600 : AppColors.neutral400,
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.xl),
 
-            // Team Filter
-            Text(
-              'Team',
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            DropdownButtonFormField<String>(
-              value: _selectedTeam,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.medium),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-              ),
-              items: [
-                const DropdownMenuItem(value: 'all', child: Text('All Teams')),
-                if (_isLoadingTeams)
-                  const DropdownMenuItem(
-                    value: 'loading',
-                    enabled: false,
-                    child: Text('Loading teams...'),
-                  )
-                else
-                  ..._teams.map(
-                    (team) => DropdownMenuItem(
-                      value: team.id,
-                      child: Text(team.name),
+              // Actions
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _isGenerating ? null : () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
                     ),
                   ),
-              ],
-              onChanged: (value) {
-                if (value != null && value != 'loading') {
-                  setState(() => _selectedTeam = value);
-                }
-              },
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Status Filter
-            Text(
-              'Status',
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            DropdownButtonFormField<String>(
-              value: _selectedStatus,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.medium),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'all', child: Text('All Status')),
-                DropdownMenuItem(value: 'ongoing', child: Text('Ongoing')),
-                DropdownMenuItem(value: 'completed', child: Text('Completed')),
-                DropdownMenuItem(value: 'cancelled', child: Text('Cancelled')),
-                DropdownMenuItem(value: 'overdue', child: Text('Overdue')),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedStatus = value);
-                }
-              },
-            ),
-            const SizedBox(height: AppSpacing.xl),
-
-            // Info
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(
-                  alpha: 0.3,
-                ),
-                borderRadius: BorderRadius.circular(AppRadius.medium),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 16,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: Text(
-                      'Report includes task details, assignees, and status history.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                      ),
+                    child: AppButton(
+                      text: 'Generate PDF',
+                      onPressed: _isGenerating ? null : _generateReport,
+                      isLoading: _isGenerating,
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-
-            // Actions
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed:
-                        _isGenerating
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: AppButton(
-                    text: 'Generate PDF',
-                    onPressed: _isGenerating ? null : _generateReport,
-                    isLoading: _isGenerating,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

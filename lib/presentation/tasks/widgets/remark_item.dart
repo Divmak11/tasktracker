@@ -49,7 +49,7 @@ class RemarkItem extends StatelessWidget {
           // Avatar
           CircleAvatar(
             radius: 18,
-            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+            backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
             child: Text(
               user?.name.substring(0, 1).toUpperCase() ?? '?',
               style: TextStyle(

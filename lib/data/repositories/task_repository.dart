@@ -117,12 +117,12 @@ class TaskRepository {
         );
   }
 
-  /// Get all tasks created by a user
+  /// Get all tasks created by a user (latest first)
   Stream<List<TaskModel>> getCreatedTasksStream(String userId) {
     return _firestore
         .collection(_collection)
         .where('createdBy', isEqualTo: userId)
-        .orderBy('deadline', descending: false)
+        .orderBy('createdAt', descending: true)
         .snapshots()
         .map(
           (snapshot) =>
@@ -131,6 +131,7 @@ class TaskRepository {
                   .toList(),
         );
   }
+
 
   /// Update task via Cloud Function
   Future<void> updateTask(String taskId, Map<String, dynamic> updates) async {
@@ -279,6 +280,7 @@ class TaskRepository {
   /// Get all tasks where user is an assignee (handles both old and new structure)
   /// For old tasks: queries assignedTo field
   /// For new multi-assignee tasks: queries assigneeIds array
+  /// IMPORTANT: Both queries use .snapshots() for REAL-TIME updates
   Stream<List<TaskModel>> getUserAssignedTasksStream(
     String userId, {
     TaskStatus? status,
@@ -301,36 +303,36 @@ class TaskRepository {
       multiQuery = multiQuery.where('status', isEqualTo: status.name);
     }
 
-    // Combine both streams
-    return legacyQuery.snapshots().asyncMap((legacySnapshot) async {
-      final multiSnapshot = await multiQuery.get();
+    // Use asyncExpand with combineLatest-like behavior
+    // Both streams are real-time now
+    final legacyStream = legacyQuery.snapshots();
+    final multiStream = multiQuery.snapshots();
 
-      final legacyTasks =
-          legacySnapshot.docs
-              .map(
-                (doc) => TaskModel.fromJson(
-                  doc.data() as Map<String, dynamic>,
-                  doc.id,
-                ),
-              )
-              .toList();
+    // Manual combineLatest implementation using StreamController
+    // This ensures updates from EITHER stream trigger data refresh
+    QuerySnapshot? lastLegacy;
+    QuerySnapshot? lastMulti;
 
-      final multiTasks =
-          multiSnapshot.docs
-              .map(
-                (doc) => TaskModel.fromJson(
-                  doc.data() as Map<String, dynamic>,
-                  doc.id,
-                ),
-              )
-              .toList();
+    List<TaskModel> combineResults() {
+      if (lastLegacy == null || lastMulti == null) return [];
 
-      // Combine and remove duplicates by ID
       final allTasks = <String, TaskModel>{};
-      for (final task in legacyTasks) {
+
+      // Add legacy tasks
+      for (final doc in lastLegacy!.docs) {
+        final task = TaskModel.fromJson(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        );
         allTasks[task.id] = task;
       }
-      for (final task in multiTasks) {
+
+      // Add multi-assignee tasks
+      for (final doc in lastMulti!.docs) {
+        final task = TaskModel.fromJson(
+          doc.data() as Map<String, dynamic>,
+          doc.id,
+        );
         allTasks[task.id] = task;
       }
 
@@ -338,6 +340,27 @@ class TaskRepository {
       final result = allTasks.values.toList();
       result.sort((a, b) => a.deadline.compareTo(b.deadline));
       return result;
+    }
+
+    return Stream.multi((controller) {
+      final sub1 = legacyStream.listen((snapshot) {
+        lastLegacy = snapshot;
+        if (lastMulti != null) {
+          controller.add(combineResults());
+        }
+      });
+
+      final sub2 = multiStream.listen((snapshot) {
+        lastMulti = snapshot;
+        if (lastLegacy != null) {
+          controller.add(combineResults());
+        }
+      });
+
+      controller.onCancel = () {
+        sub1.cancel();
+        sub2.cancel();
+      };
     });
   }
 
@@ -355,6 +378,7 @@ class TaskRepository {
   }
 
   /// Get past tasks for user (completed or cancelled, supports both structures)
+  /// IMPORTANT: All queries use .snapshots() for REAL-TIME updates
   Stream<List<TaskModel>> getPastAssignedTasksStream(String userId) {
     // Query for legacy single-assignee tasks (completed or cancelled)
     final legacyQuery = _firestore
@@ -376,35 +400,142 @@ class TaskRepository {
         .where('assigneeIds', arrayContains: userId)
         .where('status', isEqualTo: TaskStatus.cancelled.name);
 
-    // Combine all streams
-    return legacyQuery.snapshots().asyncMap((legacySnapshot) async {
-      final multiCompletedSnapshot = await multiQueryCompleted.get();
-      final multiCancelledSnapshot = await multiQueryCancelled.get();
+    // All streams are real-time
+    final legacyStream = legacyQuery.snapshots();
+    final completedStream = multiQueryCompleted.snapshots();
+    final cancelledStream = multiQueryCancelled.snapshots();
+
+    // Manual combineLatest implementation
+    QuerySnapshot? lastLegacy;
+    QuerySnapshot? lastCompleted;
+    QuerySnapshot? lastCancelled;
+
+    List<TaskModel> combineResults() {
+      if (lastLegacy == null || lastCompleted == null || lastCancelled == null) return [];
 
       final allTasks = <String, TaskModel>{};
 
-      // Add legacy tasks
-      for (final doc in legacySnapshot.docs) {
-        final task = TaskModel.fromJson(doc.data(), doc.id);
+      for (final doc in lastLegacy!.docs) {
+        final task = TaskModel.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+        allTasks[task.id] = task;
+      }
+      for (final doc in lastCompleted!.docs) {
+        final task = TaskModel.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+        allTasks[task.id] = task;
+      }
+      for (final doc in lastCancelled!.docs) {
+        final task = TaskModel.fromJson(doc.data() as Map<String, dynamic>, doc.id);
         allTasks[task.id] = task;
       }
 
-      // Add multi-assignee completed tasks
-      for (final doc in multiCompletedSnapshot.docs) {
-        final task = TaskModel.fromJson(doc.data(), doc.id);
-        allTasks[task.id] = task;
-      }
-
-      // Add multi-assignee cancelled tasks
-      for (final doc in multiCancelledSnapshot.docs) {
-        final task = TaskModel.fromJson(doc.data(), doc.id);
-        allTasks[task.id] = task;
-      }
-
-      // Sort by deadline descending (most recent first for past tasks)
       final result = allTasks.values.toList();
       result.sort((a, b) => b.deadline.compareTo(a.deadline));
       return result;
+    }
+
+    return Stream.multi((controller) {
+      final sub1 = legacyStream.listen((snapshot) {
+        lastLegacy = snapshot;
+        if (lastCompleted != null && lastCancelled != null) {
+          controller.add(combineResults());
+        }
+      });
+      final sub2 = completedStream.listen((snapshot) {
+        lastCompleted = snapshot;
+        if (lastLegacy != null && lastCancelled != null) {
+          controller.add(combineResults());
+        }
+      });
+      final sub3 = cancelledStream.listen((snapshot) {
+        lastCancelled = snapshot;
+        if (lastLegacy != null && lastCompleted != null) {
+          controller.add(combineResults());
+        }
+      });
+
+      controller.onCancel = () {
+        sub1.cancel();
+        sub2.cancel();
+        sub3.cancel();
+      };
+    });
+  }
+
+  /// Get all tasks for calendar view (assigned to user OR created by user)
+  /// IMPORTANT: All queries use .snapshots() for REAL-TIME updates
+  Stream<List<TaskModel>> getUserCalendarTasksStream(String userId) {
+    // Query for tasks assigned to user (legacy + multi-assignee)
+    final assignedQuery1 = _firestore
+        .collection(_collection)
+        .where('assignedTo', isEqualTo: userId);
+
+    final assignedQuery2 = _firestore
+        .collection(_collection)
+        .where('assigneeIds', arrayContains: userId);
+
+    // Query for tasks created by user
+    final createdQuery = _firestore
+        .collection(_collection)
+        .where('createdBy', isEqualTo: userId);
+
+    // All streams are real-time
+    final stream1 = assignedQuery1.snapshots();
+    final stream2 = assignedQuery2.snapshots();
+    final stream3 = createdQuery.snapshots();
+
+    // Manual combineLatest implementation
+    QuerySnapshot? lastAssigned1;
+    QuerySnapshot? lastAssigned2;
+    QuerySnapshot? lastCreated;
+
+    List<TaskModel> combineResults() {
+      if (lastAssigned1 == null || lastAssigned2 == null || lastCreated == null) return [];
+
+      final allTasks = <String, TaskModel>{};
+
+      for (final doc in lastAssigned1!.docs) {
+        final task = TaskModel.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+        allTasks[task.id] = task;
+      }
+      for (final doc in lastAssigned2!.docs) {
+        final task = TaskModel.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+        allTasks[task.id] = task;
+      }
+      for (final doc in lastCreated!.docs) {
+        final task = TaskModel.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+        allTasks[task.id] = task;
+      }
+
+      final result = allTasks.values.toList();
+      result.sort((a, b) => a.deadline.compareTo(b.deadline));
+      return result;
+    }
+
+    return Stream.multi((controller) {
+      final sub1 = stream1.listen((snapshot) {
+        lastAssigned1 = snapshot;
+        if (lastAssigned2 != null && lastCreated != null) {
+          controller.add(combineResults());
+        }
+      });
+      final sub2 = stream2.listen((snapshot) {
+        lastAssigned2 = snapshot;
+        if (lastAssigned1 != null && lastCreated != null) {
+          controller.add(combineResults());
+        }
+      });
+      final sub3 = stream3.listen((snapshot) {
+        lastCreated = snapshot;
+        if (lastAssigned1 != null && lastAssigned2 != null) {
+          controller.add(combineResults());
+        }
+      });
+
+      controller.onCancel = () {
+        sub1.cancel();
+        sub2.cancel();
+        sub3.cancel();
+      };
     });
   }
 }

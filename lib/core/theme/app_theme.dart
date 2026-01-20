@@ -129,7 +129,7 @@ class AppTheme {
     ),
 
     // Card Theme
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: AppColors.surfaceLight,
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -220,6 +220,56 @@ class AppTheme {
       elevation: 8,
     ),
 
+    // Navigation Bar Theme (Material 3)
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: AppColors.surfaceLight,
+      indicatorColor: AppColors.primaryLight,
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return const IconThemeData(color: Colors.white);
+        }
+        return const IconThemeData(color: AppColors.textSecondaryLight);
+      }),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.primaryLight,
+          );
+        }
+        return const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: AppColors.textSecondaryLight,
+        );
+      }),
+    ),
+
+    // Segmented Button Theme
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.selected)) {
+            return AppColors.primaryLight;
+          }
+          return Colors.transparent;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.selected)) {
+            return Colors.white;
+          }
+          return AppColors.textSecondaryLight;
+        }),
+        side: WidgetStateProperty.resolveWith((states) {
+          return const BorderSide(color: AppColors.borderLight);
+        }),
+        textStyle: WidgetStateProperty.all(
+          const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ),
+    ),
+
     // Divider Theme
     dividerTheme: const DividerThemeData(
       color: AppColors.borderLight,
@@ -293,7 +343,7 @@ class AppTheme {
     ),
 
     // Card Theme
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: AppColors.surfaceDark,
       elevation: 0,
       shape: RoundedRectangleBorder(

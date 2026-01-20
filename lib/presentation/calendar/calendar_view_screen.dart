@@ -80,7 +80,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen> {
         ],
       ),
       body: StreamBuilder<List<TaskModel>>(
-        stream: _taskRepository.getUserAssignedTasksStream(currentUser.id),
+        stream: _taskRepository.getUserCalendarTasksStream(currentUser.id),
         builder: (context, snapshot) {
           if (snapshot.hasData) {
             // Update tasks by date when data changes
@@ -106,7 +106,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen> {
                     color: isDark ? AppColors.neutral400 : AppColors.neutral600,
                   ),
                   todayDecoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                    color: theme.colorScheme.primary.withOpacity(0.3),
                     shape: BoxShape.circle,
                   ),
                   selectedDecoration: BoxDecoration(
@@ -301,7 +301,7 @@ class _CalendarViewScreenState extends State<CalendarViewScreen> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.1),
+                          color: statusColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(

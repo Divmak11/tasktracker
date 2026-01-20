@@ -28,21 +28,21 @@ class StatusBadge extends StatelessWidget {
     switch (status) {
       case StatusType.ongoing:
         final color = isDark ? AppColors.infoDark : AppColors.infoLight;
-        backgroundColor = color.withValues(alpha: 0.1);
+        backgroundColor = color.withOpacity(0.1);
         foregroundColor = color;
         text = 'Ongoing';
         icon = Icons.access_time_rounded;
         break;
       case StatusType.completed:
         final color = isDark ? AppColors.successDark : AppColors.successLight;
-        backgroundColor = color.withValues(alpha: 0.1);
+        backgroundColor = color.withOpacity(0.1);
         foregroundColor = color;
         text = 'Completed';
         icon = Icons.check_circle_outline_rounded;
         break;
       case StatusType.overdue:
         final color = isDark ? AppColors.errorDark : AppColors.errorLight;
-        backgroundColor = color.withValues(alpha: 0.1);
+        backgroundColor = color.withOpacity(0.1);
         foregroundColor = color;
         text = 'Overdue';
         icon = Icons.warning_amber_rounded;
@@ -55,7 +55,7 @@ class StatusBadge extends StatelessWidget {
         break;
       case StatusType.pending:
         final color = isDark ? AppColors.warningDark : AppColors.warningLight;
-        backgroundColor = color.withValues(alpha: 0.1);
+        backgroundColor = color.withOpacity(0.1);
         foregroundColor = color;
         text = 'Pending';
         icon = Icons.hourglass_empty_rounded;

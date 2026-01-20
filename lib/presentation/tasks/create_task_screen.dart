@@ -12,6 +12,7 @@ import '../../data/services/cloud_functions_service.dart';
 import '../../data/providers/auth_provider.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
+import '../common/widgets/voice_input_button.dart';
 import 'widgets/assignee_selection_screen.dart';
 
 // Extended enum for assignment type including Self
@@ -56,6 +57,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked != null) {
+      // Unfocus to prevent focus return to description when self-assignment is selected
+      if (_assignmentType == AssignmentType.self) {
+        FocusScope.of(context).unfocus();
+      }
       setState(() => _selectedDate = picked);
     }
   }
@@ -83,7 +88,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             picked.minute,
           );
 
-          if (selectedDateTime.isBefore(now)) {
+          if (selectedDateTime.isBefore(now.add(const Duration(minutes: 1)))) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -97,6 +102,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             return; // Don't set the time
           }
         }
+      }
+      // Unfocus to prevent focus return to description when self-assignment is selected
+      if (_assignmentType == AssignmentType.self) {
+        FocusScope.of(context).unfocus();
       }
       setState(() => _selectedTime = picked);
     }
@@ -248,6 +257,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         hint: 'Enter task title',
                         controller: _titleController,
                         maxLength: 100,
+                        suffixIcon: VoiceInputButton(
+                          fieldName: 'Title',
+                          controller: _titleController,
+                          maxLength: 100,
+                          onTextConfirmed: (text, mode) {
+                            setState(() {
+                              if (mode == TextInsertMode.append) {
+                                _titleController.text = '${_titleController.text} $text'.trim();
+                              } else {
+                                _titleController.text = text;
+                              }
+                            });
+                          },
+                        ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter task title';
@@ -263,6 +286,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         controller: _subtitleController,
                         maxLines: 4,
                         maxLength: 500,
+                        suffixIcon: VoiceInputButton(
+                          fieldName: 'Description',
+                          controller: _subtitleController,
+                          maxLength: 500,
+                          onTextConfirmed: (text, mode) {
+                            setState(() {
+                              if (mode == TextInsertMode.append) {
+                                _subtitleController.text = '${_subtitleController.text} $text'.trim();
+                              } else {
+                                _subtitleController.text = text;
+                              }
+                            });
+                          },
+                        ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter description';

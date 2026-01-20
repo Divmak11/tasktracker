@@ -103,6 +103,37 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
       initialTime: _selectedTime ?? TimeOfDay.now(),
     );
     if (picked != null) {
+      if (_selectedDate != null) {
+        final now = DateTime.now();
+        final isToday =
+            _selectedDate!.year == now.year &&
+            _selectedDate!.month == now.month &&
+            _selectedDate!.day == now.day;
+
+        if (isToday) {
+          final selectedDateTime = DateTime(
+            _selectedDate!.year,
+            _selectedDate!.month,
+            _selectedDate!.day,
+            picked.hour,
+            picked.minute,
+          );
+
+          if (selectedDateTime.isBefore(now.add(const Duration(minutes: 1)))) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Selected time is in the past. Please choose a future time.',
+                  ),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
       setState(() => _selectedTime = picked);
     }
   }
@@ -126,6 +157,17 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         _selectedTime!.hour,
         _selectedTime!.minute,
       );
+
+      // Validate deadline is in the future
+      if (deadline.isBefore(DateTime.now().add(const Duration(minutes: 1)))) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Deadline must be in the future'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
 
       // OPTIMISTIC UPDATE: Show success and navigate back immediately
       NotificationService.showInAppNotification(
@@ -179,12 +221,12 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
                         Container(
                           padding: const EdgeInsets.all(AppSpacing.md),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withValues(alpha: 0.1),
+                            color: Colors.orange.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(
                               AppRadius.medium,
                             ),
                             border: Border.all(
-                              color: Colors.orange.withValues(alpha: 0.3),
+                              color: Colors.orange.withOpacity(0.3),
                             ),
                           ),
                           child: Row(
