@@ -30,6 +30,11 @@ class AuthRepository {
       _firebaseAuth.authStateChanges();
 
   /// Get current Firebase user
+  /// Check if user is signed in
+  bool get isSignedIn => _firebaseAuth.currentUser != null;
+
+  /// Get current Firebase Auth user (supports ALL auth methods)
+  /// Used by AuthProvider to check for existing sessions on app restart
   firebase_auth.User? get currentFirebaseUser => _firebaseAuth.currentUser;
 
   /// Sign in with Google (includes calendar consent for seamless toggle experience)
@@ -79,7 +84,22 @@ class AuthRepository {
     }
   }
 
-  /// Sign in with Email and Password (for Reviewers only)
+  /// Create account with Email and Password
+  Future<firebase_auth.UserCredential> createUserWithEmailAndPassword(
+    String email,
+    String password,
+  ) async {
+    try {
+      return await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      throw Exception('Account creation failed: $e');
+    }
+  }
+
+  /// Sign in with Email and Password
   Future<firebase_auth.UserCredential> signInWithEmailAndPassword(
     String email,
     String password,

@@ -65,6 +65,7 @@ class AppRouter {
         final isOnSplashPage = currentPath == '/';
         // Use startsWith to include /login and any sub-routes like /login/email
         final isOnLoginPage = currentPath.startsWith(AppRoutes.login);
+        final isOnSignupPage = currentPath == AppRoutes.signup;
         final isOnEnterNamePage = currentPath == AppRoutes.enterName;
         final isOnPendingPage = currentPath == AppRoutes.requestPending;
         final isOnRevokedPage = currentPath == AppRoutes.accessRevoked;
@@ -85,10 +86,10 @@ class AppRouter {
         // Allow access to access-revoked page even if not authenticated
         if (isOnRevokedPage) return null;
 
-        // Not authenticated -> redirect to login
+        // Not authenticated -> redirect to login (but allow signup page)
         if (!isAuthenticated) {
           debugPrint('🔀 Not authenticated, redirecting to login');
-          return isOnLoginPage ? null : AppRoutes.login;
+          return (isOnLoginPage || isOnSignupPage) ? null : AppRoutes.login;
         }
 
         // Authenticated but user data not loaded yet -> show splash (unless already on Login)

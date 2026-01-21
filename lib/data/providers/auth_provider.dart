@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../core/constants/env_config.dart';
@@ -111,19 +110,27 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
 
   Future<void> _attemptSilentSignIn() async {
     try {
-      // Try to sign in silently with Google
+      // FIRST: Check if Firebase Auth has a session (works for ALL auth methods)
+      final firebaseUser = _authRepository.currentFirebaseUser;
+      if (firebaseUser != null) {
+        debugPrint('✅ Bootstrapping: Firebase session restored ${firebaseUser.uid}');
+        // Auth state stream will fire with this user - no action needed
+        return;
+      }
+      
+      // SECOND: Try Google silent sign-in as fallback (for Google users)
       final result = await _authRepository.signInWithGoogleSilently();
       
       if (result?.user != null) {
          debugPrint('✅ Bootstrapping: Silent Google sign-in restored ${result!.user!.uid}');
-         // The authStateChanges stream will fire with the new user, so we don't need to do anything here
+         // The authStateChanges stream will fire with the new user
          return;
       }
       
-      debugPrint('🔓 Bootstrapping: No Google session found');
+      debugPrint('🔓 Bootstrapping: No session found');
       _clearUser(); // Finalize logout state
     } catch (e) {
-      debugPrint('❌ Bootstrapping: Silent Google sign-in failed: $e');
+      debugPrint('❌ Bootstrapping: Silent sign-in failed: $e');
       _clearUser(); // Finalize logout state
     } finally {
       _isInitialLoad = false;
@@ -336,9 +343,34 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     }
   }
 
-  /// Sign in with Email and Password (for Reviewers only)
+  /// Sign up with Email and Password
+  Future<void> signUpWithEmail(String email, String password) async {
+    debugPrint('📝 Starting Email Sign-Up...');
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      // Create Firebase Auth account
+      await _authRepository.createUserWithEmailAndPassword(email, password);
+      
+      // Backend trigger (createUserProfile) automatically creates Firestore doc
+      // with needsOnboarding: true, which triggers router redirect to /enter-name
+      
+      // Wait for user data to load
+      await _waitForUserData();
+      
+      debugPrint('✅ Email Sign-Up successful');
+    } catch (e) {
+      debugPrint('❌ Email Sign-Up failed: $e');
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Sign in with Email and Password
   Future<void> signInWithEmail(String email, String password) async {
-    debugPrint('🔐 Starting Email Sign-In...');
+    debugPrint('📧 Starting Email Sign-In...');
     _isLoading = true;
     notifyListeners();
 
@@ -347,7 +379,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('✅ Email Sign-In successful');
       // User data will be loaded automatically via auth state listener
 
-      // Wait for user data to actually load (with timeout)
+      // Wait for user data to load (via authStateChanges listener)
       await _waitForUserData();
     } catch (e) {
       debugPrint('❌ Email Sign-In failed: $e');

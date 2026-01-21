@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/constants/app_spacing.dart';
-import '../../core/theme/app_theme.dart';
 import '../../data/providers/auth_provider.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
@@ -82,17 +82,9 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      'Demo Account Login',
+                      'Sign In with Email',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'For Play Store reviewers',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: isDark ? AppColors.neutral400 : AppColors.neutral600,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -134,6 +126,30 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
                       onPressed: _isLoading ? null : _handleLogin,
                       isLoading: _isLoading,
                       isFullWidth: true,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+
+                    // Sign Up Button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          "Don't have an account? ",
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        TextButton(
+                          onPressed: _isLoading
+                              ? null
+                              : () => context.push('/signup'),
+                          child: Text(
+                            'Sign Up',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../core/constants/app_routes.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
@@ -338,6 +339,11 @@ class _SettingsScreenState extends State<SettingsScreen>
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.currentUser;
 
+    // Check if user signed in with Google (calendar is Google-only feature)
+    final firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+    final isGoogleUser = firebaseUser?.providerData
+        .any((info) => info.providerId == 'google.com') ?? false;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: SingleChildScrollView(
@@ -466,38 +472,54 @@ class _SettingsScreenState extends State<SettingsScreen>
                     height: 1,
                     color: isDark ? AppColors.neutral700 : AppColors.neutral200,
                   ),
-                  ListTile(
-                    leading: Icon(
-                      Icons.calendar_month_outlined,
-                      color:
-                          user?.googleCalendarConnected == true
-                              ? Colors.green
-                              : null,
+                  // Calendar toggle - only for Google users
+                  if (isGoogleUser)
+                    ListTile(
+                      leading: Icon(
+                        Icons.calendar_month_outlined,
+                        color:
+                            user?.googleCalendarConnected == true
+                                ? Colors.green
+                                : null,
+                      ),
+                      title: const Text('Google Calendar'),
+                      subtitle: Text(
+                        user?.googleCalendarConnected == true
+                            ? 'Connected - Tasks sync to calendar'
+                            : 'Connect to sync tasks with calendar',
+                      ),
+                      trailing:
+                          _isCalendarLoading
+                              ? const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                              : Switch(
+                                value: user?.googleCalendarConnected ?? false,
+                                onChanged:
+                                    user != null
+                                        ? (value) => _toggleCalendarConnection(
+                                          user.id,
+                                          user.googleCalendarConnected,
+                                        )
+                                        : null,
+                              ),
+                    )
+                  else
+                    // Informational message for non-Google users
+                    ListTile(
+                      leading: Icon(
+                        Icons.calendar_month_outlined,
+                        color: Colors.grey,
+                      ),
+                      title: Text('Google Calendar'),
+                      subtitle: Text(
+                        'Calendar sync requires Google Sign-In',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      enabled: false,
                     ),
-                    title: const Text('Google Calendar'),
-                    subtitle: Text(
-                      user?.googleCalendarConnected == true
-                          ? 'Connected - Tasks sync to calendar'
-                          : 'Connect to sync tasks with calendar',
-                    ),
-                    trailing:
-                        _isCalendarLoading
-                            ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                            : Switch(
-                              value: user?.googleCalendarConnected ?? false,
-                              onChanged:
-                                  user != null
-                                      ? (value) => _toggleCalendarConnection(
-                                        user.id,
-                                        user.googleCalendarConnected,
-                                      )
-                                      : null,
-                            ),
-                  ),
                 ],
               ),
             ),
