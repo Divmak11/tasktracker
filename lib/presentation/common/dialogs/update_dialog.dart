@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 /// 
 /// Features:
 /// - Two variants: Forced (non-dismissible) and Optional (dismissible)
-/// - Platform-aware store terminology
+/// - Platform-agnostic update prompts
 /// - Haptic feedback
 /// - Material Design 3 styling
 class UpdateDialog extends StatelessWidget {
@@ -28,7 +28,6 @@ class UpdateDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final storeName = Platform.isAndroid ? 'Play Store' : 'App Store';
 
     return PopScope(
       canPop: !isForced, // Prevent back button dismissal if forced
@@ -104,7 +103,7 @@ class UpdateDialog extends StatelessWidget {
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
-            child: Text('Update via $storeName'),
+            child: const Text('Update Now'),
           ),
         ],
       ),

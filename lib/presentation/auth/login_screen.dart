@@ -195,7 +195,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   // Large spacing to push terms toward bottom
                   const SizedBox(height: AppSpacing.xxl),
 
-                  // Reviewer Login Button (Subtle)
+                  // Email Login Button (Subtle)
                   TextButton(
                     onPressed: _isLoading ? null : () => context.push('/login/email'),
                     child: Text(
@@ -396,11 +396,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Use these credentials provided in the Play Store access panel.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
+
                       AppTextField(
                         label: 'Email',
                         controller: emailController,

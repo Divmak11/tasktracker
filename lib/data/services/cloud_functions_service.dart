@@ -395,7 +395,7 @@ class CloudFunctionsService {
   // ACCOUNT MANAGEMENT
   // ============================================
 
-  /// Delete own account and all associated data (Play Store compliance)
+  /// Delete own account and all associated data (Store compliance)
   Future<Map<String, dynamic>> deleteOwnAccount() async {
     final callable = _functions.httpsCallable('deleteOwnAccount');
     final result = await callable.call();
