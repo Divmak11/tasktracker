@@ -21,6 +21,7 @@ import '../../presentation/admin/reschedule_log_screen.dart';
 import '../../presentation/admin/overdue_tasks_screen.dart';
 import '../../presentation/admin/all_tasks_screen.dart';
 import '../../presentation/admin/user_task_summary_screen.dart';
+import '../../presentation/admin/team_admin_dashboard_screen.dart';
 // HIDDEN: Import for disabled Invite Users module
 // import '../../presentation/admin/invite_users_screen.dart';
 import '../../presentation/approvals/reschedule_approval_screen.dart';
@@ -187,6 +188,13 @@ class AppRouter {
               routes: [
                 GoRoute(
                   path: AppRoutes.adminDashboard,
+                  redirect: (context, state) {
+                    final auth = authProvider;
+                    if (auth.currentUser?.role != UserRole.superAdmin) {
+                      return AppRoutes.home;
+                    }
+                    return null;
+                  },
                   builder: (context, state) => const AdminDashboardScreen(),
                 ),
                 GoRoute(
@@ -212,6 +220,11 @@ class AppRouter {
                       path: 'completed-tasks',
                       builder: (context, state) =>
                           const FilteredTasksScreen(filterType: 'completed'),
+                    ),
+                    GoRoute(
+                      path: 'team-admin',
+                      builder: (context, state) =>
+                          const TeamAdminDashboardScreen(),
                     ),
                   ],
                 ),

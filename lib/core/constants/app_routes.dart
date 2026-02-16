@@ -23,6 +23,7 @@ class AppRoutes {
   static const String userTaskSummary = '/admin/users/:id/tasks';
   static const String adminMyTasks = '/admin/my-tasks';
   static const String inviteUsers = '/admin/invites';
+  static const String teamAdminDashboard = '/home/team-admin';
 
   // Approvals
   static const String approvals = '/approvals';
