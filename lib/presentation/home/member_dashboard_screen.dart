@@ -236,15 +236,15 @@ class _MemberDashboardScreenState extends State<MemberDashboardScreen>
                       badgeCount: cache.completedCount,
                       badgeColor: Colors.grey,
                     ),
-                    // Team Admin only: Create Team
+                    // Team Admin only: Team Admin Panel
                     if (currentUser.role == UserRole.teamAdmin) ...[
                       const SizedBox(height: AppSpacing.sm),
                       _buildActionCard(
                         context,
-                        'Create Team',
-                        'Create a new team',
-                        Icons.group_add,
-                        () => context.push(AppRoutes.teamManagement),
+                        'Team Admin Panel',
+                        'View team analytics & manage your team',
+                        Icons.admin_panel_settings_outlined,
+                        () => context.push(AppRoutes.teamAdminDashboard),
                       ),
                     ],
                   ],

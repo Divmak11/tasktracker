@@ -14,6 +14,8 @@ import '../../../data/models/user_model.dart';
 import '../../../data/repositories/team_repository.dart';
 import '../../../data/repositories/user_repository.dart';
 import '../../../data/services/cloud_functions_service.dart';
+import '../../../data/providers/auth_provider.dart';
+import 'package:provider/provider.dart';
 import '../../common/buttons/app_button.dart';
 
 class ExportReportDialog extends StatefulWidget {
@@ -51,10 +53,21 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
   Future<void> _loadTeams() async {
     try {
       final teams = await _teamRepository.getAllTeamsStream().first;
-      setState(() {
-        _teams = teams;
-        _isLoadingTeams = false;
-      });
+      final auth = context.read<AuthProvider>();
+      final user = auth.currentUser;
+
+      // Team Admin: only show teams they administer
+      if (user != null && user.role == UserRole.teamAdmin) {
+        setState(() {
+          _teams = teams.where((t) => t.adminId == user.id).toList();
+          _isLoadingTeams = false;
+        });
+      } else {
+        setState(() {
+          _teams = teams;
+          _isLoadingTeams = false;
+        });
+      }
     } catch (e) {
       setState(() => _isLoadingTeams = false);
     }
@@ -63,10 +76,27 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
   Future<void> _loadMembers() async {
     try {
       final members = await _userRepository.getAllUsersStream().first;
-      setState(() {
-        _members = members;
-        _isLoadingMembers = false;
-      });
+      final auth = context.read<AuthProvider>();
+      final user = auth.currentUser;
+
+      // Team Admin: only show members from their teams
+      if (user != null && user.role == UserRole.teamAdmin) {
+        final allTeams = await _teamRepository.getAllTeamsStream().first;
+        final myTeams = allTeams.where((t) => t.adminId == user.id).toList();
+        final myTeamMemberIds = <String>{};
+        for (final team in myTeams) {
+          myTeamMemberIds.addAll(team.memberIds);
+        }
+        setState(() {
+          _members = members.where((m) => myTeamMemberIds.contains(m.id)).toList();
+          _isLoadingMembers = false;
+        });
+      } else {
+        setState(() {
+          _members = members;
+          _isLoadingMembers = false;
+        });
+      }
     } catch (e) {
       setState(() => _isLoadingMembers = false);
     }
