@@ -51,16 +51,22 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     onChanged: (value) => setState(() => newRole = value),
                   ),
                   RadioListTile<UserRole>(
-                    title: const Text('Team Admin'),
-                    value: UserRole.teamAdmin,
-                    groupValue: newRole,
-                    onChanged: (value) => setState(() => newRole = value),
-                  ),
-                  RadioListTile<UserRole>(
                     title: const Text('Member'),
                     value: UserRole.member,
                     groupValue: newRole,
                     onChanged: (value) => setState(() => newRole = value),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'Team Admin role is managed automatically when a user is assigned as admin of a team.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
                   ),
                 ],
               ),
