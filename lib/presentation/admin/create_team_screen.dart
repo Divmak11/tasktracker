@@ -21,6 +21,8 @@ class CreateTeamScreen extends StatefulWidget {
 class _CreateTeamScreenState extends State<CreateTeamScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _scrollController = ScrollController();
+  final _adminDropdownKey = GlobalKey();
   final _teamRepository = TeamRepository();
   final _userRepository = UserRepository();
   final Set<String> _selectedMembers = {};
@@ -30,21 +32,39 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
+  Future<void> _scrollToWidget(GlobalKey key) async {
+    final context = key.currentContext;
+    if (context != null) {
+      await Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: 0.5,
+      );
+    }
+  }
+
   Future<void> _handleCreate() async {
+    // Check Team Admin selection FIRST (before form validate)
+    // because form.validate() marks the dropdown red but doesn't scroll to it
+    if (_selectedMembers.isNotEmpty && _selectedAdminId == null) {
+      _scrollToWidget(_adminDropdownKey);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a Team Admin')),
+      );
+      // Still run validate to show all field errors
+      _formKey.currentState?.validate();
+      return;
+    }
+
     if (_formKey.currentState?.validate() ?? false) {
       if (_selectedMembers.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please select at least one member')),
-        );
-        return;
-      }
-
-      if (_selectedAdminId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a Team Admin')),
         );
         return;
       }
@@ -117,6 +137,7 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
           children: [
             Expanded(
               child: SingleChildScrollView(
+                controller: _scrollController,
                 padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
                 child: Form(
                   key: _formKey,
@@ -269,6 +290,11 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
                               // Team Admin Selector (only show when members are selected)
                               if (_selectedMembers.isNotEmpty) ...[
                                 const SizedBox(height: AppSpacing.xl),
+                                Container(
+                                  key: _adminDropdownKey,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
                                 Text(
                                   'Select Team Admin',
                                   style: theme.textTheme.titleMedium,
@@ -309,6 +335,9 @@ class _CreateTeamScreenState extends State<CreateTeamScreen> {
                                     }
                                     return null;
                                   },
+                                ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ],

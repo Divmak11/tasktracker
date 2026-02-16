@@ -16,9 +16,9 @@ class PermissionUtils {
   }
 
   /// Check if user can create teams.
-  /// Super Admin and Team Admin can create teams.
+  /// Only Super Admin can create teams.
   static bool canCreateTeam(UserRole? role) {
-    return role == UserRole.superAdmin || role == UserRole.teamAdmin;
+    return role == UserRole.superAdmin;
   }
 
   /// Check if user can approve user access requests.
