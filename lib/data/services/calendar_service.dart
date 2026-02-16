@@ -107,20 +107,17 @@ class CalendarService {
   /// Resets all local calendar state. Call this on logout to prevent
   /// stale sessions from being used by a different user.
   /// 
-  /// NOTE: This does NOT call disconnect() because that would force
-  /// consent screen even for users who haven't revoked access.
+  /// NOTE: This does NOT call signOut() because AuthRepository.signOut() 
+  /// already clears the Google session. We only need to clear local state here.
+  /// The double signOut was causing consent screen to appear on every login.
   Future<void> reset() async {
     debugPrint('📅 [CALENDAR] [RESET] Clearing local state...');
     _currentAccount = null;
     _calendarApi = null;
     
-    // Sign out of Google to clear the session
-    try {
-      await _googleSignIn.signOut();
-      debugPrint('📅 [CALENDAR] [RESET] Google session signed out');
-    } catch (e) {
-      debugPrint('⚠️ [CALENDAR] [RESET] signOut error (ignoring): $e');
-    }
+    // NOTE: signOut() removed - AuthRepository.signOut() already clears the
+    // Google session when user logs out. Calling it twice was causing the
+    // consent screen to appear on every subsequent login.
     
     // Nullify the GoogleSignIn instance so a fresh one is created next time
     _googleSignInInstance = null;

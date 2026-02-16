@@ -21,7 +21,8 @@ import '../../presentation/admin/reschedule_log_screen.dart';
 import '../../presentation/admin/overdue_tasks_screen.dart';
 import '../../presentation/admin/all_tasks_screen.dart';
 import '../../presentation/admin/user_task_summary_screen.dart';
-import '../../presentation/admin/invite_users_screen.dart';
+// HIDDEN: Import for disabled Invite Users module
+// import '../../presentation/admin/invite_users_screen.dart';
 import '../../presentation/approvals/reschedule_approval_screen.dart';
 import '../../presentation/notifications/notification_center_screen.dart';
 import '../../presentation/home/home_screen.dart';
@@ -313,10 +314,13 @@ class AppRouter {
                   path: AppRoutes.userManagement,
                   builder: (context, state) => const UserManagementScreen(),
                 ),
-                GoRoute(
-                  path: AppRoutes.inviteUsers,
-                  builder: (context, state) => const InviteUsersScreen(),
-                ),
+                // HIDDEN: Invite Users Module - Temporarily disabled (2026-01-31)
+                // Reason: Feature removed from UI, keeping code for potential future use
+                // To re-enable: Uncomment the route below
+                // GoRoute(
+                //   path: AppRoutes.inviteUsers,
+                //   builder: (context, state) => const InviteUsersScreen(),
+                // ),
               ],
             ),
             // Branch 2: Settings

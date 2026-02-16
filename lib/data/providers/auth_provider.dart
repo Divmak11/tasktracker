@@ -270,7 +270,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
         debugPrint('📅 Exchanging calendar auth code...');
         try {
           final cloudFunctions = CloudFunctionsService();
-          await cloudFunctions.exchangeCalendarAuthCode(result.serverAuthCode!);
+          cloudFunctions.exchangeCalendarAuthCode(result.serverAuthCode!);
           debugPrint('✅ Calendar tokens exchanged and stored');
         } catch (calendarError) {
           // Non-fatal: User can still use the app, calendar toggle will retry

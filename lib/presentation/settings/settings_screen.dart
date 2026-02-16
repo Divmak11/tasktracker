@@ -34,16 +34,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     final authProvider = context.read<AuthProvider>();
     final user = authProvider.currentUser;
 
-    if (user?.role == UserRole.superAdmin) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Super Admin accounts cannot be self-deleted'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
     final confirmed = await showDialog<bool>(
       context: context,
       builder:
