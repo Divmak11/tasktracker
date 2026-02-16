@@ -31,6 +31,7 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _accessDenied = false;
+  bool _isSuperAdmin = false;
   TeamModel? _currentTeam;
 
   @override
@@ -58,6 +59,7 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
         }
 
         setState(() {
+          _isSuperAdmin = isSuperAdmin;
           _currentTeam = team;
           _nameController.text = team.name;
           _selectedMembers.addAll(team.memberIds);
@@ -115,36 +117,42 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
 
   Future<void> _handleSave() async {
     if (_formKey.currentState?.validate() ?? false) {
-      if (_selectedMembers.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select at least one member')),
-        );
-        return;
-      }
+      // Build updates map based on caller's permissions
+      final updates = <String, dynamic>{
+        'name': _nameController.text.trim(),
+      };
 
-      if (_selectedAdminId == null ||
-          !_selectedMembers.contains(_selectedAdminId)) {
-        // If admin is removed or not selected, default to first member or show error
-        // Ideally, force selection. For now, let's default to first member if current admin is removed
-        if (_selectedMembers.isNotEmpty) {
-          _selectedAdminId = _selectedMembers.first;
+      // Only Super Admin can modify members and admin
+      if (_isSuperAdmin) {
+        if (_selectedMembers.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select at least one member')),
+          );
+          return;
         }
+
+        if (_selectedAdminId == null ||
+            !_selectedMembers.contains(_selectedAdminId)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please select a valid team admin from the members'),
+            ),
+          );
+          return;
+        }
+
+        updates['memberIds'] = _selectedMembers.toList();
+        updates['adminId'] = _selectedAdminId;
       }
 
       setState(() => _isSaving = true);
 
       try {
-        // Update team in Firestore
-        await _teamRepository.updateTeam(widget.teamId, {
-          'name': _nameController.text.trim(),
-          'memberIds': _selectedMembers.toList(),
-          'adminId': _selectedAdminId,
-        });
+        await _teamRepository.updateTeam(widget.teamId, updates);
 
         if (mounted) {
           setState(() => _isSaving = false);
 
-          // Show success notification
           NotificationService.showInAppNotification(
             context,
             title: 'Team Updated',
@@ -153,7 +161,6 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
             backgroundColor: Colors.green.shade700,
           );
 
-          // Go back
           context.pop();
         }
       } catch (e) {
@@ -274,139 +281,224 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
                           ),
                           const SizedBox(height: AppSpacing.lg),
 
-                          // Admin Selection
+                          // Admin Selection — Super Admin only (editable dropdown)
+                          // Team Admin sees read-only display
                           if (_selectedMembers.isNotEmpty) ...[
                             Text(
                               'Team Admin',
                               style: theme.textTheme.titleMedium,
                             ),
                             const SizedBox(height: AppSpacing.sm),
-                            DropdownButtonFormField<String>(
-                              value: _selectedAdminId,
-                              decoration: InputDecoration(
-                                border: OutlineInputBorder(
+                            if (_isSuperAdmin)
+                              DropdownButtonFormField<String>(
+                                value: _selectedAdminId,
+                                decoration: InputDecoration(
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.medium,
+                                    ),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.md,
+                                    vertical: AppSpacing.sm,
+                                  ),
+                                ),
+                                items:
+                                    memberUsers.map((user) {
+                                      return DropdownMenuItem(
+                                        value: user.id,
+                                        child: Text(user.name),
+                                      );
+                                    }).toList(),
+                                onChanged: (value) {
+                                  final user = users.firstWhere(
+                                    (u) => u.id == value,
+                                  );
+                                  _handleAdminChange(value, user.name);
+                                },
+                                validator: (value) {
+                                  if (value == null) {
+                                    return 'Please select an admin';
+                                  }
+                                  return null;
+                                },
+                              )
+                            else
+                              // Read-only admin display for Team Admins
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.md,
+                                  vertical: AppSpacing.md,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                                  ),
                                   borderRadius: BorderRadius.circular(
                                     AppRadius.medium,
                                   ),
+                                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.md,
-                                  vertical: AppSpacing.sm,
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.admin_panel_settings_outlined,
+                                      color: theme.colorScheme.primary,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: AppSpacing.sm),
+                                    Text(
+                                      memberUsers
+                                          .where((u) => u.id == _selectedAdminId)
+                                          .map((u) => u.name)
+                                          .firstOrNull ?? 'Unknown',
+                                      style: theme.textTheme.bodyLarge,
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      'Only Super Admin can change',
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        color: theme.colorScheme.outline,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              items:
-                                  memberUsers.map((user) {
-                                    return DropdownMenuItem(
-                                      value: user.id,
-                                      child: Text(user.name),
-                                    );
-                                  }).toList(),
-                              onChanged: (value) {
-                                final user = users.firstWhere(
-                                  (u) => u.id == value,
-                                );
-                                _handleAdminChange(value, user.name);
-                              },
-                              validator: (value) {
-                                if (value == null) {
-                                  return 'Please select an admin';
-                                }
-                                return null;
-                              },
-                            ),
                             const SizedBox(height: AppSpacing.xl),
                           ],
 
+                          // Members section — Super Admin gets checkboxes, Team Admin gets read-only list
                           Text(
-                            'Select Members',
+                            _isSuperAdmin ? 'Select Members' : 'Team Members',
                             style: theme.textTheme.titleMedium,
                           ),
                           const SizedBox(height: AppSpacing.sm),
 
+                          if (!_isSuperAdmin)
+                            // Read-only hint for Team Admins
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                              child: Text(
+                                'Only Super Admin can modify team members.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                            ),
+
                           ListView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            itemCount: users.length,
+                            itemCount: _isSuperAdmin
+                                ? users.length
+                                : memberUsers.length,
                             itemBuilder: (context, index) {
-                              final user = users[index];
+                              final user = _isSuperAdmin
+                                  ? users[index]
+                                  : memberUsers[index];
                               final isSelected = _selectedMembers.contains(
                                 user.id,
                               );
                               final isAdmin = user.id == _selectedAdminId;
 
-                              return CheckboxListTile(
-                                value: isSelected,
-                                onChanged: (value) {
-                                  setState(() {
-                                    if (value == true) {
-                                      _selectedMembers.add(user.id);
-                                      // If this is the first member, make them admin by default if none selected
-                                      if (_selectedMembers.length == 1 &&
-                                          _selectedAdminId == null) {
-                                        _selectedAdminId = user.id;
-                                      }
-                                    } else {
-                                      _selectedMembers.remove(user.id);
-                                      // If removed user was admin, clear admin selection
-                                      if (user.id == _selectedAdminId) {
-                                        _selectedAdminId = null;
-                                        // Auto-select another member if available
-                                        if (_selectedMembers.isNotEmpty) {
-                                          _selectedAdminId =
-                                              _selectedMembers.first;
+                              if (_isSuperAdmin) {
+                                // Super Admin: interactive checkboxes
+                                return CheckboxListTile(
+                                  value: isSelected,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      if (value == true) {
+                                        _selectedMembers.add(user.id);
+                                        if (_selectedMembers.length == 1 &&
+                                            _selectedAdminId == null) {
+                                          _selectedAdminId = user.id;
                                         }
+                                      } else {
+                                        // Warn if removing the admin
+                                        if (user.id == _selectedAdminId) {
+                                          _showAdminRemovalWarning(user);
+                                          return;
+                                        }
+                                        _selectedMembers.remove(user.id);
                                       }
-                                    }
-                                  });
-                                },
-                                title: Row(
-                                  children: [
-                                    Expanded(child: Text(user.name)),
-                                    if (isAdmin)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              theme
-                                                  .colorScheme
-                                                  .primaryContainer,
-                                          borderRadius: BorderRadius.circular(
-                                            12,
+                                    });
+                                  },
+                                  title: Row(
+                                    children: [
+                                      Expanded(child: Text(user.name)),
+                                      if (isAdmin)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.primaryContainer,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            'ADMIN',
+                                            style: theme.textTheme.labelSmall?.copyWith(
+                                              color: theme.colorScheme.onPrimaryContainer,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                         ),
-                                        child: Text(
-                                          'ADMIN',
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color:
-                                                    theme
-                                                        .colorScheme
-                                                        .onPrimaryContainer,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                        ),
+                                    ],
+                                  ),
+                                  subtitle: Text(_getRoleDisplayName(user.role)),
+                                  secondary: CircleAvatar(
+                                    backgroundColor: theme.colorScheme.primaryContainer,
+                                    child: Text(
+                                      user.name.isNotEmpty ? user.name[0] : '?',
+                                      style: TextStyle(
+                                        color: theme.colorScheme.onPrimaryContainer,
                                       ),
-                                  ],
-                                ),
-                                subtitle: Text(_getRoleDisplayName(user.role)),
-                                secondary: CircleAvatar(
-                                  backgroundColor:
-                                      theme.colorScheme.primaryContainer,
-                                  child: Text(
-                                    user.name.isNotEmpty ? user.name[0] : '?',
-                                    style: TextStyle(
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
                                     ),
                                   ),
-                                ),
-                                contentPadding: EdgeInsets.zero,
-                                activeColor: theme.colorScheme.primary,
-                                checkColor: theme.colorScheme.onPrimary,
-                              );
+                                  contentPadding: EdgeInsets.zero,
+                                  activeColor: theme.colorScheme.primary,
+                                  checkColor: theme.colorScheme.onPrimary,
+                                );
+                              } else {
+                                // Team Admin: read-only member list
+                                return ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: theme.colorScheme.primaryContainer,
+                                    child: Text(
+                                      user.name.isNotEmpty ? user.name[0] : '?',
+                                      style: TextStyle(
+                                        color: theme.colorScheme.onPrimaryContainer,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Expanded(child: Text(user.name)),
+                                      if (isAdmin)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.primaryContainer,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            'ADMIN',
+                                            style: theme.textTheme.labelSmall?.copyWith(
+                                              color: theme.colorScheme.onPrimaryContainer,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  subtitle: Text(_getRoleDisplayName(user.role)),
+                                  contentPadding: EdgeInsets.zero,
+                                );
+                              }
                             },
                           ),
                         ],
@@ -430,6 +522,41 @@ class _EditTeamScreenState extends State<EditTeamScreen> {
         ),
       ),
     );
+  }
+
+  /// Confirmation dialog when Super Admin tries to remove the current admin from members
+  Future<void> _showAdminRemovalWarning(UserModel adminUser) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Team Admin?'),
+        content: Text(
+          '${adminUser.name} is the current team admin. '
+          'Removing them from the team will require selecting a new admin. '
+          'Do you want to continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      setState(() {
+        _selectedMembers.remove(adminUser.id);
+        _selectedAdminId = null;
+        if (_selectedMembers.isNotEmpty) {
+          _selectedAdminId = _selectedMembers.first;
+        }
+      });
+    }
   }
 
   String _getRoleDisplayName(UserRole role) {
