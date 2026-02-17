@@ -180,7 +180,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           'Active Teams',
           '$activeTeams',
           Icons.groups_outlined,
-          onTap: () => context.push(AppRoutes.teamManagement),
+          onTap: () => StatefulNavigationShell.of(context).goBranch(1),
         ),
         _buildStatCard(
           context,
