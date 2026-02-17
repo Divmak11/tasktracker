@@ -119,19 +119,9 @@ class TeamManagementScreen extends StatelessWidget {
               return AppCard(
                 type: AppCardType.standard,
                 onTap: () {
-                  // Only allow navigation to team detail if user can edit
-                  // Otherwise just show team info (read-only)
-                  if (canEdit) {
-                    context.push('${AppRoutes.teamManagement}/${team.id}');
-                  } else {
-                    // Show a snackbar for read-only access
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Team: ${team.name}\nMembers: ${team.memberIds.length}'),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                  }
+                  // Navigate to team detail for all users
+                  // TeamDetailScreen handles access control (view-only for non-admins)
+                  context.push('${AppRoutes.teamManagement}/${team.id}');
                 },
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.cardPadding),

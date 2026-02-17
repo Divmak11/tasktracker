@@ -9,17 +9,70 @@ import '../../data/providers/auth_provider.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../common/cards/app_card.dart';
+import '../common/buttons/app_button.dart';
 
-class TeamDetailScreen extends StatelessWidget {
+class TeamDetailScreen extends StatefulWidget {
   final String teamId;
 
   const TeamDetailScreen({super.key, required this.teamId});
 
   @override
+  State<TeamDetailScreen> createState() => _TeamDetailScreenState();
+}
+
+class _TeamDetailScreenState extends State<TeamDetailScreen> {
+  final _teamRepository = TeamRepository();
+  bool _isDeleting = false;
+
+  Future<void> _handleDeleteTeam(BuildContext context, TeamModel team) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Team'),
+        content: Text(
+          'Are you sure you want to delete "${team.name}"?\n\n'
+          'This will remove all ${team.memberIds.length} members from the team '
+          'and cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    try {
+      await _teamRepository.deleteTeam(widget.teamId);
+      if (mounted) {
+        context.pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Team "${team.name}" deleted successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isDeleting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting team: $e')),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final teamRepository = TeamRepository();
     final userRepository = UserRepository();
     final currentUser = context.watch<AuthProvider>().currentUser;
 
@@ -32,7 +85,7 @@ class TeamDetailScreen extends StatelessWidget {
         title: const Text('Team Details'),
       ),
       body: StreamBuilder<TeamModel?>(
-        stream: teamRepository.getTeamStream(teamId),
+        stream: _teamRepository.getTeamStream(widget.teamId),
         builder: (context, teamSnapshot) {
           if (teamSnapshot.hasError) {
             return Center(child: Text('Error: ${teamSnapshot.error}'));
@@ -149,7 +202,7 @@ class TeamDetailScreen extends StatelessWidget {
                           IconButton(
                             icon: const Icon(Icons.edit_outlined),
                             tooltip: 'Edit Team',
-                            onPressed: () => context.push('/admin/teams/$teamId/edit'),
+                            onPressed: () => context.push('/admin/teams/${widget.teamId}/edit'),
                           ),
                       ],
                     ),
@@ -227,7 +280,16 @@ class TeamDetailScreen extends StatelessWidget {
                             ),
                             title: Row(
                               children: [
-                                Expanded(child: Text(member.name)),
+                                Expanded(
+                                  child: Text(
+                                    member.id == currentUser.id
+                                        ? 'You'
+                                        : member.name,
+                                    style: member.id == currentUser.id
+                                        ? const TextStyle(fontWeight: FontWeight.w600)
+                                        : null,
+                                  ),
+                                ),
                                 if (isAdmin)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
@@ -265,6 +327,24 @@ class TeamDetailScreen extends StatelessWidget {
                     );
                   },
                 ),
+
+                // Delete Team Button (Super Admin only)
+                if (isSuperAdmin) ...[
+                  const SizedBox(height: AppSpacing.xxl),
+                  SizedBox(
+                    width: double.infinity,
+                    child: AppButton(
+                      text: 'Delete Team',
+                      type: AppButtonType.secondary,
+                      isLoading: _isDeleting,
+                      customColor: Colors.red,
+                      onPressed: _isDeleting
+                          ? null
+                          : () => _handleDeleteTeam(context, team),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
               ],
             ),
           );
