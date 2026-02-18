@@ -111,7 +111,7 @@ class CalendarService {
   /// already clears the Google session. We only need to clear local state here.
   /// The double signOut was causing consent screen to appear on every login.
   Future<void> reset() async {
-    debugPrint('📅 [CALENDAR] [RESET] Clearing local state...');
+    debugPrint('[CALENDAR] [RESET] Clearing local state...');
     _currentAccount = null;
     _calendarApi = null;
     
@@ -121,7 +121,7 @@ class CalendarService {
     
     // Nullify the GoogleSignIn instance so a fresh one is created next time
     _googleSignInInstance = null;
-    debugPrint('📅 [CALENDAR] [RESET] Complete');
+    debugPrint('[CALENDAR] [RESET] Complete');
   }
 
   /// Clears stale session aggressively. Call this when we detect
@@ -130,21 +130,21 @@ class CalendarService {
   /// This uses disconnect() which revokes tokens at OS level,
   /// ensuring a completely fresh session on next attempt.
   Future<void> clearStaleSession() async {
-    debugPrint('📅 [CALENDAR] [CLEAR_STALE] Clearing stale session aggressively...');
+    debugPrint('[CALENDAR] [CLEAR_STALE] Clearing stale session aggressively...');
     _currentAccount = null;
     _calendarApi = null;
     
     try {
       // disconnect() is more aggressive than signOut() - it revokes OS-level tokens
       await _googleSignIn.disconnect();
-      debugPrint('📅 [CALENDAR] [CLEAR_STALE] Disconnected from Google');
+      debugPrint('[CALENDAR] [CLEAR_STALE] Disconnected from Google');
     } catch (e) {
-      debugPrint('⚠️ [CALENDAR] [CLEAR_STALE] disconnect error (ignoring): $e');
+      debugPrint('[CALENDAR] [CLEAR_STALE] disconnect error (ignoring): $e');
     }
     
     // Nullify instance to force fresh creation
     _googleSignInInstance = null;
-    debugPrint('📅 [CALENDAR] [CLEAR_STALE] Complete');
+    debugPrint('[CALENDAR] [CLEAR_STALE] Complete');
   }
 
   /// Verifies if the current calendar connection is still valid.
@@ -153,19 +153,19 @@ class CalendarService {
   /// Returns true if connection is valid, false if it needs reconnection.
   /// If invalid, backend automatically sets googleCalendarConnected = false.
   Future<bool> verifyConnectionStatus() async {
-    debugPrint('📅 [CALENDAR] [VERIFY] Verifying connection status...');
+    debugPrint('[CALENDAR] [VERIFY] Verifying connection status...');
     try {
       final result = await _cloudFunctions.reconnectCalendar();
       if (result['success'] == true) {
-        debugPrint('✅ [CALENDAR] [VERIFY] Connection is valid');
+        debugPrint('[CALENDAR] [VERIFY] Connection is valid');
         return true;
       } else {
-        debugPrint('⚠️ [CALENDAR] [VERIFY] Connection invalid, requiresReauth=${result['requiresReauth']}');
+        debugPrint('[CALENDAR] [VERIFY] Connection invalid, requiresReauth=${result['requiresReauth']}');
         // Backend already set googleCalendarConnected = false
         return false;
       }
     } catch (e) {
-      debugPrint('❌ [CALENDAR] [VERIFY] Error: $e');
+      debugPrint('[CALENDAR] [VERIFY] Error: $e');
       return false;
     }
   }
@@ -181,7 +181,7 @@ class CalendarService {
     String userId, {
     int maxRetries = 2,
   }) async {
-    debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] Starting for user=$userId');
+    debugPrint('[CALENDAR] [REFRESH_TOKEN] Starting for user=$userId');
 
     int attempt = 0;
     Exception? lastError;
@@ -189,7 +189,7 @@ class CalendarService {
     while (attempt <= maxRetries) {
       attempt++;
       debugPrint(
-        '📅 [CALENDAR] [REFRESH_TOKEN] Attempt $attempt/${maxRetries + 1}',
+        '[CALENDAR] [REFRESH_TOKEN] Attempt $attempt/${maxRetries + 1}',
       );
 
       try {
@@ -198,25 +198,25 @@ class CalendarService {
 
         if (_currentAccount == null) {
           debugPrint(
-            '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in returned null',
+            '[CALENDAR] [REFRESH_TOKEN] Silent sign-in returned null',
           );
           // Silent sign-in failed - user needs to reconnect calendar
           return CalendarRefreshResult.reconnectNeeded;
         }
 
         debugPrint(
-          '📅 [CALENDAR] [REFRESH_TOKEN] Silent sign-in SUCCESS '
+          '[CALENDAR] [REFRESH_TOKEN] Silent sign-in SUCCESS '
           'email=${_currentAccount!.email}',
         );
 
         final auth = await _currentAccount!.authentication;
         if (auth.accessToken == null) {
-          debugPrint('📅 [CALENDAR] [REFRESH_TOKEN] No access token available');
+          debugPrint('[CALENDAR] [REFRESH_TOKEN] No access token available');
           return CalendarRefreshResult.reconnectNeeded;
         }
 
         debugPrint(
-          '📅 [CALENDAR] [REFRESH_TOKEN] Got new access token '
+          '[CALENDAR] [REFRESH_TOKEN] Got new access token '
           '(preview=${auth.accessToken!.substring(0, 20)}...)',
         );
 
@@ -227,13 +227,13 @@ class CalendarService {
         });
 
         debugPrint(
-          '✅ [CALENDAR] [REFRESH_TOKEN] SUCCESS - Saved to Firestore for '
+          '[CALENDAR] [REFRESH_TOKEN] SUCCESS - Saved to Firestore for '
           'user=$userId',
         );
         return CalendarRefreshResult.success;
       } catch (e) {
         lastError = e is Exception ? e : Exception(e.toString());
-        debugPrint('❌ [CALENDAR] [REFRESH_TOKEN] Attempt $attempt FAILED: $e');
+        debugPrint('[CALENDAR] [REFRESH_TOKEN] Attempt $attempt FAILED: $e');
 
         // Wait before retry (exponential backoff)
         if (attempt <= maxRetries) {
@@ -243,7 +243,7 @@ class CalendarService {
     }
 
     debugPrint(
-      '❌ [CALENDAR] [REFRESH_TOKEN] All $attempt attempts failed. '
+      '[CALENDAR] [REFRESH_TOKEN] All $attempt attempts failed. '
       'Last error: $lastError',
     );
     return CalendarRefreshResult.failed;
@@ -260,43 +260,43 @@ class CalendarService {
   ///
   /// Returns a [CalendarConnectResult] with specific failure reason if failed.
   Future<CalendarConnectResult> connect(String userId) async {
-    debugPrint('📅 [CALENDAR] [CONNECT] Starting for user=$userId');
-    debugPrint('📅 [CALENDAR] [CONNECT] Using webClientId=$_webClientId');
+    debugPrint('[CALENDAR] [CONNECT] Starting for user=$userId');
+    debugPrint('[CALENDAR] [CONNECT] Using webClientId=$_webClientId');
 
     try {
       // SMART RECONNECT: Try to use existing backend tokens first
       // This avoids showing the Google Sign-In dialog for returning users
-      debugPrint('📅 [CALENDAR] [CONNECT] Attempting Smart Reconnect...');
+      debugPrint('[CALENDAR] [CONNECT] Attempting Smart Reconnect...');
       bool requiresReauth = false;
       try {
         final reconnectResult = await _cloudFunctions.reconnectCalendar();
         if (reconnectResult['success'] == true) {
-          debugPrint('✅ [CALENDAR] [CONNECT] Smart Reconnect SUCCESS!');
+          debugPrint('[CALENDAR] [CONNECT] Smart Reconnect SUCCESS!');
           
           // Try to restore local session to match backend state
           // This is optional - backend connection is what matters for sync
           try {
             _currentAccount = await _googleSignIn.signInSilently();
             if (_currentAccount != null) {
-              debugPrint('✅ [CALENDAR] [CONNECT] Local session restored');
+              debugPrint('[CALENDAR] [CONNECT] Local session restored');
               final authenticatedClient = _GoogleAuthClient(await _currentAccount!.authHeaders);
               _calendarApi = calendar.CalendarApi(authenticatedClient);
             } else {
               // iOS: signInSilently often returns null even with valid consent
               // Backend has valid tokens so calendar sync will work via Cloud Functions
-              debugPrint('ℹ️ [CALENDAR] [CONNECT] Local session null (iOS), but backend connected - calendar sync will work');
+              debugPrint('[CALENDAR] [CONNECT] Local session null (iOS), but backend connected - calendar sync will work');
             }
           } catch (e) {
-            debugPrint('⚠️ [CALENDAR] [CONNECT] Local restore failed, but backend is connected: $e');
+            debugPrint('[CALENDAR] [CONNECT] Local restore failed, but backend is connected: $e');
           }
           // Return success regardless of local session - backend is the source of truth
           return CalendarConnectResult.success;
         } else {
           requiresReauth = reconnectResult['requiresReauth'] == true;
-          debugPrint('ℹ️ [CALENDAR] [CONNECT] Smart Reconnect failed. requiresReauth=$requiresReauth');
+          debugPrint('[CALENDAR] [CONNECT] Smart Reconnect failed. requiresReauth=$requiresReauth');
         }
       } catch (e) {
-         debugPrint('⚠️ [CALENDAR] [CONNECT] Smart Reconnect error (ignoring): $e');
+         debugPrint('[CALENDAR] [CONNECT] Smart Reconnect error (ignoring): $e');
          // Fall through to full sign-in
       }
 
@@ -309,17 +309,17 @@ class CalendarService {
       // OAuth flow that shows consent screen and returns serverAuthCode.
       // Android doesn't have this issue - it handles incremental scopes properly.
       if (Platform.isIOS && requiresReauth) {
-        debugPrint('📅 [CALENDAR] [CONNECT] iOS: requiresReauth=true, clearing stale session...');
+        debugPrint('[CALENDAR] [CONNECT] iOS: requiresReauth=true, clearing stale session...');
         try {
           await _googleSignIn.disconnect();
-          debugPrint('📅 [CALENDAR] [CONNECT] iOS: Session cleared, will show fresh consent');
+          debugPrint('[CALENDAR] [CONNECT] iOS: Session cleared, will show fresh consent');
         } catch (e) {
-          debugPrint('⚠️ [CALENDAR] [CONNECT] iOS: disconnect() error (ignoring): $e');
+          debugPrint('[CALENDAR] [CONNECT] iOS: disconnect() error (ignoring): $e');
         }
       }
       
       // Try silent sign-in first to avoid showing account picker
-      debugPrint('📅 [CALENDAR] [CONNECT] Trying signInSilently first...');
+      debugPrint('[CALENDAR] [CONNECT] Trying signInSilently first...');
 
       GoogleSignInAccount? account;
       try {
@@ -329,12 +329,12 @@ class CalendarService {
         // and force a full signIn() if missing. Android is unaffected since
         // its signInSilently() already returns serverAuthCode.
         if (account != null && account.serverAuthCode != null) {
-          debugPrint('✅ [CALENDAR] [CONNECT] signInSilently SUCCESS with serverAuthCode');
+          debugPrint('[CALENDAR] [CONNECT] signInSilently SUCCESS with serverAuthCode');
         } else {
           if (account != null) {
-            debugPrint('⚠️ [CALENDAR] [CONNECT] signInSilently succeeded but no serverAuthCode (iOS), forcing signIn()...');
+            debugPrint('[CALENDAR] [CONNECT] signInSilently succeeded but no serverAuthCode (iOS), forcing signIn()...');
           } else {
-            debugPrint('ℹ️ [CALENDAR] [CONNECT] signInSilently returned null, showing dialog...');
+            debugPrint('[CALENDAR] [CONNECT] signInSilently returned null, showing dialog...');
           }
           account = await _googleSignIn.signIn();
           
@@ -342,20 +342,20 @@ class CalendarService {
           // disconnect to clear the cached session and try once more.
           // This handles edge cases where the OS session interferes.
           if (Platform.isIOS && account != null && account.serverAuthCode == null) {
-            debugPrint('⚠️ [CALENDAR] [CONNECT] iOS: signIn() returned no serverAuthCode, disconnecting and retrying...');
+            debugPrint('[CALENDAR] [CONNECT] iOS: signIn() returned no serverAuthCode, disconnecting and retrying...');
             try {
               await _googleSignIn.disconnect();
               account = await _googleSignIn.signIn();
-              debugPrint('📅 [CALENDAR] [CONNECT] iOS: Retry signIn() hasServerAuthCode=${account?.serverAuthCode != null}');
+              debugPrint('[CALENDAR] [CONNECT] iOS: Retry signIn() hasServerAuthCode=${account?.serverAuthCode != null}');
             } catch (retryError) {
-              debugPrint('❌ [CALENDAR] [CONNECT] iOS: Retry failed: $retryError');
+              debugPrint('[CALENDAR] [CONNECT] iOS: Retry failed: $retryError');
             }
           }
         }
       } catch (signInError) {
-        debugPrint(
-          '❌ [CALENDAR] [CONNECT] GoogleSignIn threw error: $signInError',
-        );
+          debugPrint(
+            '[CALENDAR] [CONNECT] GoogleSignIn threw error: $signInError',
+          );
         // Check if it's a network error
         if (signInError.toString().contains('network') ||
             signInError.toString().contains('SocketException') ||
@@ -367,15 +367,15 @@ class CalendarService {
       }
 
       if (account == null) {
-        debugPrint('❌ [CALENDAR] [CONNECT] User cancelled sign-in');
+        debugPrint('[CALENDAR] [CONNECT] User cancelled sign-in');
         return CalendarConnectResult.userCancelled;
       }
 
       _currentAccount = account;
-      debugPrint('📅 [CALENDAR] [CONNECT] GoogleSignIn SUCCESS');
-      debugPrint('📅 [CALENDAR] [CONNECT] email=${_currentAccount!.email}');
+      debugPrint('[CALENDAR] [CONNECT] GoogleSignIn SUCCESS');
+      debugPrint('[CALENDAR] [CONNECT] email=${_currentAccount!.email}');
       debugPrint(
-        '📅 [CALENDAR] [CONNECT] '
+        '[CALENDAR] [CONNECT] '
         'hasServerAuthCode=${_currentAccount!.serverAuthCode != null}',
       );
 
@@ -383,7 +383,7 @@ class CalendarService {
       // Get auth headers for local calendar operations
       final auth = await _currentAccount!.authentication;
       debugPrint(
-        '📅 [CALENDAR] [CONNECT] '
+        '[CALENDAR] [CONNECT] '
         'hasAccessToken=${auth.accessToken != null}, '
         'hasIdToken=${auth.idToken != null}',
       );
@@ -404,7 +404,7 @@ class CalendarService {
       if (serverAuthCode == null || serverAuthCode.isEmpty) {
         // No serverAuthCode received - this is a configuration issue
         debugPrint(
-          '❌ [CALENDAR] [CONNECT] No serverAuthCode received! '
+          '[CALENDAR] [CONNECT] No serverAuthCode received! '
           'Check if webClientId is correct.',
         );
         // Clean up partial state
@@ -413,11 +413,11 @@ class CalendarService {
       }
 
       debugPrint(
-        '📅 [CALENDAR] [CONNECT] Got serverAuthCode '
+        '[CALENDAR] [CONNECT] Got serverAuthCode '
         '(length=${serverAuthCode.length})',
       );
       debugPrint(
-        '📅 [CALENDAR] [CONNECT] Calling backend exchangeCalendarAuthCode...',
+        '[CALENDAR] [CONNECT] Calling backend exchangeCalendarAuthCode...',
       );
 
       // CRITICAL: Wait for backend to exchange AND verify the tokens
@@ -434,7 +434,7 @@ class CalendarService {
         if (!success) {
           final errorMessage = result['message'] as String? ?? 'Unknown error';
           debugPrint(
-            '❌ [CALENDAR] [CONNECT] Backend returned failure: $errorMessage',
+            '[CALENDAR] [CONNECT] Backend returned failure: $errorMessage',
           );
 
           // Clean up partial state
@@ -448,11 +448,11 @@ class CalendarService {
         }
 
         debugPrint(
-          '✅ [CALENDAR] [CONNECT] Backend token exchange AND verification SUCCESS '
+          '[CALENDAR] [CONNECT] Backend token exchange AND verification SUCCESS '
           'hasRefreshToken=$hasRefreshToken',
         );
       } catch (e) {
-        debugPrint('❌ [CALENDAR] [CONNECT] Backend exchange FAILED: $e');
+        debugPrint('[CALENDAR] [CONNECT] Backend exchange FAILED: $e');
 
         // Clean up partial state - don't leave calendar API initialized
         // when connection actually failed
@@ -465,7 +465,7 @@ class CalendarService {
         // CRITICAL: If auth code is expired/already used, user needs to logout and login again
         // This happens when user revoked access in Google Settings
         if (errorStr.contains('expired') || errorStr.contains('already used')) {
-          debugPrint('⚠️ [CALENDAR] [CONNECT] Auth code expired - clearing stale session');
+          debugPrint('[CALENDAR] [CONNECT] Auth code expired - clearing stale session');
           // Clear the stale session so next login attempt gets fresh credentials
           await clearStaleSession();
           return CalendarConnectResult.accessRevoked;
@@ -482,11 +482,11 @@ class CalendarService {
         return CalendarConnectResult.backendExchangeFailed;
       }
 
-      debugPrint('✅ [CALENDAR] [CONNECT] COMPLETE for user=$userId');
+      debugPrint('[CALENDAR] [CONNECT] COMPLETE for user=$userId');
       return CalendarConnectResult.success;
     } catch (e, stackTrace) {
-      debugPrint('❌ [CALENDAR] [CONNECT] FAILED: $e');
-      debugPrint('❌ [CALENDAR] [CONNECT] StackTrace: $stackTrace');
+      debugPrint('[CALENDAR] [CONNECT] FAILED: $e');
+      debugPrint('[CALENDAR] [CONNECT] StackTrace: $stackTrace');
 
       // Clean up any partial state
       _calendarApi = null;
@@ -503,13 +503,13 @@ class CalendarService {
   ///
   /// Returns a [CalendarDisconnectResult] with specific status.
   Future<CalendarDisconnectResult> disconnect(String userId) async {
-    debugPrint('📅 [CALENDAR] [DISCONNECT] Starting for user=$userId');
+    debugPrint('[CALENDAR] [DISCONNECT] Starting for user=$userId');
 
     try {
       // Call Cloud Function FIRST to delete calendar events and set flag to false
       // This must happen before local sign-out so tokens are still valid for cleanup
       debugPrint(
-        '📅 [CALENDAR] [DISCONNECT] Calling backend to disconnect...',
+        '[CALENDAR] [DISCONNECT] Calling backend to disconnect...',
       );
 
       try {
@@ -518,29 +518,29 @@ class CalendarService {
         final message = result['message'] as String? ?? '';
 
         if (!success) {
-          debugPrint('❌ [CALENDAR] [DISCONNECT] Backend returned failure');
+          debugPrint('[CALENDAR] [DISCONNECT] Backend returned failure');
           return CalendarDisconnectResult.backendFailed;
         }
 
         // Check if it was already disconnected
         if (message.contains('already disconnected')) {
-          debugPrint('ℹ️ [CALENDAR] [DISCONNECT] Was already disconnected');
+          debugPrint('[CALENDAR] [DISCONNECT] Was already disconnected');
           // Clean up local calendar state only (don't sign out of Google)
           _currentAccount = null;
           _calendarApi = null;
           return CalendarDisconnectResult.alreadyDisconnected;
         }
 
-        debugPrint('✅ [CALENDAR] [DISCONNECT] Backend confirmed disconnection');
+        debugPrint('[CALENDAR] [DISCONNECT] Backend confirmed disconnection');
       } catch (backendError) {
         debugPrint(
-          '❌ [CALENDAR] [DISCONNECT] Backend call failed: $backendError',
+          '[CALENDAR] [DISCONNECT] Backend call failed: $backendError',
         );
-        debugPrint('❌ [CALENDAR] [DISCONNECT] Error type: ${backendError.runtimeType}');
+        debugPrint('[CALENDAR] [DISCONNECT] Error type: ${backendError.runtimeType}');
 
         // Check for timeout specifically
         if (backendError is CloudFunctionTimeoutException) {
-          debugPrint('⏱️ [CALENDAR] [DISCONNECT] Function timed out after ${(backendError as CloudFunctionTimeoutException).timeout.inSeconds}s');
+          debugPrint('[CALENDAR] [DISCONNECT] Function timed out after ${(backendError as CloudFunctionTimeoutException).timeout.inSeconds}s');
           // Timeout means operation might still be running
           // For disconnect, this is usually okay - backend will complete eventually
           // But we should tell user differently than network error
@@ -560,14 +560,14 @@ class CalendarService {
 
       // Clear local calendar state (backend already revoked tokens)
       // DON'T sign out of Google - that would log user out of the entire app!
-      debugPrint('📅 [CALENDAR] [DISCONNECT] Clearing local calendar state...');
+      debugPrint('[CALENDAR] [DISCONNECT] Clearing local calendar state...');
       _currentAccount = null;
       _calendarApi = null;
 
-      debugPrint('✅ [CALENDAR] [DISCONNECT] SUCCESS for user=$userId');
+      debugPrint('[CALENDAR] [DISCONNECT] SUCCESS for user=$userId');
       return CalendarDisconnectResult.success;
     } catch (e) {
-      debugPrint('❌ [CALENDAR] [DISCONNECT] FAILED: $e');
+      debugPrint('[CALENDAR] [DISCONNECT] FAILED: $e');
 
       // Ensure local state is cleared even on error
       _currentAccount = null;
@@ -585,7 +585,7 @@ class CalendarService {
     String? attendeeEmail,
   }) async {
     if (_calendarApi == null) {
-      debugPrint('❌ Calendar: Not connected');
+      debugPrint('Calendar: Not connected');
       return null;
     }
 
@@ -623,10 +623,10 @@ class CalendarService {
 
       final createdEvent = await _calendarApi!.events.insert(event, 'primary');
 
-      debugPrint('✅ Calendar: Event created - ${createdEvent.id}');
+      debugPrint('Calendar: Event created - ${createdEvent.id}');
       return createdEvent.id;
     } catch (e) {
-      debugPrint('❌ Calendar: Event creation failed - $e');
+      debugPrint('Calendar: Event creation failed - $e');
       return null;
     }
   }
@@ -639,7 +639,7 @@ class CalendarService {
     DateTime? deadline,
   }) async {
     if (_calendarApi == null) {
-      debugPrint('❌ Calendar: Not connected');
+      debugPrint('Calendar: Not connected');
       return false;
     }
 
@@ -665,10 +665,10 @@ class CalendarService {
 
       await _calendarApi!.events.update(existingEvent, 'primary', eventId);
 
-      debugPrint('✅ Calendar: Event updated - $eventId');
+      debugPrint('Calendar: Event updated - $eventId');
       return true;
     } catch (e) {
-      debugPrint('❌ Calendar: Event update failed - $e');
+      debugPrint('Calendar: Event update failed - $e');
       return false;
     }
   }
@@ -676,16 +676,16 @@ class CalendarService {
   /// Delete a calendar event
   Future<bool> deleteTaskEvent(String eventId) async {
     if (_calendarApi == null) {
-      debugPrint('❌ Calendar: Not connected');
+      debugPrint('Calendar: Not connected');
       return false;
     }
 
     try {
       await _calendarApi!.events.delete('primary', eventId);
-      debugPrint('✅ Calendar: Event deleted - $eventId');
+      debugPrint('Calendar: Event deleted - $eventId');
       return true;
     } catch (e) {
-      debugPrint('❌ Calendar: Event deletion failed - $e');
+      debugPrint('Calendar: Event deletion failed - $e');
       return false;
     }
   }
@@ -696,13 +696,13 @@ class CalendarService {
 
     try {
       final event = await _calendarApi!.events.get('primary', eventId);
-      event.summary = '✅ ${event.summary}';
+      event.summary = '${event.summary}';
       event.colorId = '10'; // Green color
 
       await _calendarApi!.events.update(event, 'primary', eventId);
       return true;
     } catch (e) {
-      debugPrint('❌ Calendar: Mark completed failed - $e');
+      debugPrint('Calendar: Mark completed failed - $e');
       return false;
     }
   }

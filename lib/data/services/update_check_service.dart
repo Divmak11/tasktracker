@@ -92,12 +92,12 @@ class UpdateCheckService {
       _isInitialized = true;
 
       if (kDebugMode) {
-        debugPrint('✅ UpdateCheckService initialized');
+        debugPrint('UpdateCheckService initialized');
         debugPrint('   Current version: ${_packageInfo.version}');
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('⚠️ Failed to initialize UpdateCheckService: $e');
+        debugPrint('Failed to initialize UpdateCheckService: $e');
       }
       // Continue with defaults, don't block app
     }
@@ -114,7 +114,7 @@ class UpdateCheckService {
   /// - Version comparison
   Future<UpdateInfo?> checkForUpdates() async {
     if (_isCheckingForUpdates) {
-      if (kDebugMode) debugPrint('📱 Update check already in progress, skipping');
+      if (kDebugMode) debugPrint('Update check already in progress, skipping');
       return null;
     }
 
@@ -127,7 +127,7 @@ class UpdateCheckService {
 
       // Check if enough time has passed since last check
       if (!await _shouldCheckForUpdates()) {
-        if (kDebugMode) debugPrint('⏱️ Update check cooldown active, skipping');
+        if (kDebugMode) debugPrint('Update check cooldown active, skipping');
         return null;
       }
 
@@ -141,12 +141,10 @@ class UpdateCheckService {
       final latestVer = latestVersion;
       final currentVer = currentVersion;
 
-      if (kDebugMode) {
-        debugPrint('📱 Version check: current=$currentVer, latest=$latestVer');
-      }
+        debugPrint('Version check: current=$currentVer, latest=$latestVer');
 
       if (!_shouldUpdate(currentVer, latestVer)) {
-        if (kDebugMode) debugPrint('✅ App is up to date');
+        if (kDebugMode) debugPrint('App is up to date');
         return null;
       }
 
@@ -154,13 +152,13 @@ class UpdateCheckService {
       final isForced = isForceUpdate;
 
       if (kDebugMode) {
-        debugPrint('🔔 Update available: $latestVer (forced: $isForced)');
+        debugPrint('Update available: $latestVer (forced: $isForced)');
       }
 
       // For optional updates, check dismissal
       if (!isForced && !await _shouldShowAfterDismissal(latestVer)) {
         if (kDebugMode) {
-          debugPrint('⏭️ Optional update dismissed recently, skipping');
+          debugPrint('Optional update dismissed recently, skipping');
         }
         return null;
       }
@@ -176,7 +174,7 @@ class UpdateCheckService {
       );
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('❌ Error checking for updates: $e');
+        debugPrint('Error checking for updates: $e');
       }
       return null; // Graceful degradation
     } finally {
@@ -188,10 +186,10 @@ class UpdateCheckService {
   Future<void> _fetchRemoteConfig() async {
     try {
       await _remoteConfig.fetchAndActivate();
-      if (kDebugMode) debugPrint('✅ Remote Config fetched and activated');
+      if (kDebugMode) debugPrint('Remote Config fetched and activated');
     } on Exception catch (e) {
       if (kDebugMode) {
-        debugPrint('⚠️ Failed to fetch Remote Config: $e');
+        debugPrint('Failed to fetch Remote Config: $e');
         debugPrint('   Using cached or default values');
       }
       // Continue with cached/default values
@@ -206,7 +204,7 @@ class UpdateCheckService {
       final now = DateTime.now().millisecondsSinceEpoch;
       return (now - lastCheck) > _checkCooldown.inMilliseconds;
     } catch (e) {
-      if (kDebugMode) debugPrint('⚠️ Error checking last update time: $e');
+      if (kDebugMode) debugPrint('Error checking last update time: $e');
       return true; // If can't determine, allow check
     }
   }
@@ -217,7 +215,7 @@ class UpdateCheckService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_keyLastCheck, DateTime.now().millisecondsSinceEpoch);
     } catch (e) {
-      if (kDebugMode) debugPrint('⚠️ Error updating last check time: $e');
+      if (kDebugMode) debugPrint('Error updating last check time: $e');
     }
   }
 
@@ -247,7 +245,7 @@ class UpdateCheckService {
       
       return elapsed > _dismissalReminderDuration.inMilliseconds;
     } catch (e) {
-      if (kDebugMode) debugPrint('⚠️ Error checking dismissal: $e');
+      if (kDebugMode) debugPrint('Error checking dismissal: $e');
       return true; // If can't determine, show dialog
     }
   }
@@ -260,10 +258,10 @@ class UpdateCheckService {
       await prefs.setInt(_keyDismissedAt, DateTime.now().millisecondsSinceEpoch);
       
       if (kDebugMode) {
-        debugPrint('📝 Update dismissed for version: $version');
+        debugPrint('Update dismissed for version: $version');
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('⚠️ Error recording dismissal: $e');
+      if (kDebugMode) debugPrint('Error recording dismissal: $e');
     }
   }
 
@@ -287,7 +285,7 @@ class UpdateCheckService {
 
       return false; // Versions are equal
     } catch (e) {
-      if (kDebugMode) debugPrint('⚠️ Error comparing versions: $e');
+      if (kDebugMode) debugPrint('Error comparing versions: $e');
       return false; // If can't parse, don't prompt update
     }
   }
@@ -329,7 +327,7 @@ class UpdateCheckService {
       final url = storeUrl;
       final uri = Uri.parse(url);
 
-      if (kDebugMode) debugPrint('🔗 Opening store: $url');
+      if (kDebugMode) debugPrint('Opening store: $url');
 
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -346,11 +344,11 @@ class UpdateCheckService {
           }
         }
 
-        if (kDebugMode) debugPrint('❌ Cannot open store URL');
+        if (kDebugMode) debugPrint('Cannot open store URL');
         return false;
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('❌ Error opening store: $e');
+      if (kDebugMode) debugPrint('Error opening store: $e');
       return false;
     }
   }
@@ -364,7 +362,7 @@ class UpdateCheckService {
       await prefs.remove(_keyLastCheck); // Reset cooldown
       return await checkForUpdates();
     } catch (e) {
-      if (kDebugMode) debugPrint('❌ Error in force check: $e');
+      if (kDebugMode) debugPrint('Error in force check: $e');
       return null;
     }
   }
@@ -375,9 +373,9 @@ class UpdateCheckService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keyDismissedVersion);
       await prefs.remove(_keyDismissedAt);
-      if (kDebugMode) debugPrint('🔄 Dismissal reset');
+      if (kDebugMode) debugPrint('Dismissal reset');
     } catch (e) {
-      if (kDebugMode) debugPrint('❌ Error resetting dismissal: $e');
+      if (kDebugMode) debugPrint('Error resetting dismissal: $e');
     }
   }
 }

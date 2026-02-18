@@ -80,32 +80,36 @@ class StorageService {
   }) async {
     if (files.isEmpty) return [];
 
-    final uploadTasks = <UploadTask>[];
-    final uploadedPaths = <String>[];
-    final downloadUrls = <String>[];
+    // Declared outside try so catch can access them for cleanup
+    final results = files.map((file) => startUpload(taskId: taskId, file: file)).toList();
 
     try {
-      for (int i = 0; i < files.length; i++) {
-        final result = startUpload(taskId: taskId, file: files[i]);
-        uploadTasks.add(result.uploadTask);
+      int completedCount = 0;
 
-        // Await each upload sequentially to provide accurate progress
-        final snapshot = await result.uploadTask;
-        uploadedPaths.add(result.path);
-        final url = await snapshot.ref.getDownloadURL();
-        downloadUrls.add(url);
+      // Await all uploads in parallel
+      final snapshots = await Future.wait(
+        results.map((result) async {
+          final snapshot = await result.uploadTask;
+          completedCount++;
+          onProgress?.call(completedCount, files.length);
+          return (snapshot: snapshot, path: result.path);
+        }),
+      );
 
-        onProgress?.call(i + 1, files.length);
-      }
+      // Collect download URLs in order
+      final downloadUrls = await Future.wait(
+        snapshots.map((s) => s.snapshot.ref.getDownloadURL()),
+      );
 
       return downloadUrls;
     } catch (e) {
       // Orphan cleanup: delete any files that were uploaded before the failure
+      final uploadedPaths = results.map((r) => r.path).toList();
       await _cleanupPaths(uploadedPaths);
 
       // Cancel any in-progress uploads
-      for (final task in uploadTasks) {
-        task.cancel();
+      for (final result in results) {
+        result.uploadTask.cancel();
       }
 
       rethrow;

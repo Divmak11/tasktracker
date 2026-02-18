@@ -59,9 +59,11 @@ class CloudFunctionsService {
 
   /// Approve a pending user's access request (Super Admin only)
   Future<Map<String, dynamic>> approveUserAccess(String userId) async {
-    final callable = _functions.httpsCallable('approveUserAccess');
-    final result = await callable.call({'userId': userId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('approveUserAccess');
+      final result = await callable.call({'userId': userId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'approveUserAccess');
   }
 
   /// Reject a pending user's access request (Super Admin only)
@@ -69,12 +71,14 @@ class CloudFunctionsService {
     String userId, {
     String? reason,
   }) async {
-    final callable = _functions.httpsCallable('rejectUserAccess');
-    final result = await callable.call({
-      'userId': userId,
-      if (reason != null) 'reason': reason,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('rejectUserAccess');
+      final result = await callable.call({
+        'userId': userId,
+        if (reason != null) 'reason': reason,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'rejectUserAccess');
   }
 
   /// Update a user's role (Super Admin only)
@@ -82,32 +86,40 @@ class CloudFunctionsService {
     String userId,
     String newRole,
   ) async {
-    final callable = _functions.httpsCallable('updateUserRole');
-    final result = await callable.call({'userId': userId, 'newRole': newRole});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('updateUserRole');
+      final result = await callable.call({'userId': userId, 'newRole': newRole});
+      return Map<String, dynamic>.from(result.data);
+    }, 'updateUserRole');
   }
 
   /// Revoke a user's access - soft delete (Super Admin only)
   Future<Map<String, dynamic>> revokeUserAccess(String userId) async {
-    final callable = _functions.httpsCallable('revokeUserAccess');
-    final result = await callable.call({'userId': userId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('revokeUserAccess');
+      final result = await callable.call({'userId': userId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'revokeUserAccess');
   }
 
   /// Restore a revoked user's access (Super Admin only)
   Future<Map<String, dynamic>> restoreUserAccess(String userId) async {
-    final callable = _functions.httpsCallable('restoreUserAccess');
-    final result = await callable.call({'userId': userId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('restoreUserAccess');
+      final result = await callable.call({'userId': userId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'restoreUserAccess');
   }
 
 
 
   /// Permanently delete a user and cleanup related data (Super Admin only)
   Future<Map<String, dynamic>> deleteUser(String userId) async {
-    final callable = _functions.httpsCallable('deleteUser');
-    final result = await callable.call({'userId': userId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('deleteUser');
+      final result = await callable.call({'userId': userId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'deleteUser', timeout: const Duration(seconds: 60));
   }
 
   // ============================================
@@ -120,13 +132,15 @@ class CloudFunctionsService {
     required List<String> memberIds,
     required String adminId,
   }) async {
-    final callable = _functions.httpsCallable('createTeam');
-    final result = await callable.call({
-      'name': name,
-      'memberIds': memberIds,
-      'adminId': adminId,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('createTeam');
+      final result = await callable.call({
+        'name': name,
+        'memberIds': memberIds,
+        'adminId': adminId,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'createTeam');
   }
 
   /// Update a team (Super Admin or Team Admin)
@@ -136,22 +150,26 @@ class CloudFunctionsService {
     List<String>? memberIds,
     String? adminId,
   }) async {
-    final callable = _functions.httpsCallable('updateTeam');
-    final updates = <String, dynamic>{};
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('updateTeam');
+      final updates = <String, dynamic>{};
 
-    if (name != null) updates['name'] = name;
-    if (memberIds != null) updates['memberIds'] = memberIds;
-    if (adminId != null) updates['adminId'] = adminId;
+      if (name != null) updates['name'] = name;
+      if (memberIds != null) updates['memberIds'] = memberIds;
+      if (adminId != null) updates['adminId'] = adminId;
 
-    final result = await callable.call({'teamId': teamId, 'updates': updates});
-    return Map<String, dynamic>.from(result.data);
+      final result = await callable.call({'teamId': teamId, 'updates': updates});
+      return Map<String, dynamic>.from(result.data);
+    }, 'updateTeam');
   }
 
   /// Delete a team and cleanup related data (Super Admin only)
   Future<Map<String, dynamic>> deleteTeam(String teamId) async {
-    final callable = _functions.httpsCallable('deleteTeam');
-    final result = await callable.call({'teamId': teamId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('deleteTeam');
+      final result = await callable.call({'teamId': teamId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'deleteTeam');
   }
 
   // ============================================
@@ -245,9 +263,11 @@ class CloudFunctionsService {
 
   /// Cancel a task (Creator or Super Admin)
   Future<Map<String, dynamic>> cancelTask(String taskId) async {
-    final callable = _functions.httpsCallable('cancelTask');
-    final result = await callable.call({'taskId': taskId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('cancelTask');
+      final result = await callable.call({'taskId': taskId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'cancelTask');
   }
 
   /// Reopen a completed/cancelled task (Super Admin only)
@@ -255,12 +275,14 @@ class CloudFunctionsService {
     String taskId,
     DateTime newDeadline,
   ) async {
-    final callable = _functions.httpsCallable('reopenTask');
-    final result = await callable.call({
-      'taskId': taskId,
-      'newDeadline': newDeadline.toUtc().toIso8601String(),
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('reopenTask');
+      final result = await callable.call({
+        'taskId': taskId,
+        'newDeadline': newDeadline.toUtc().toIso8601String(),
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'reopenTask');
   }
 
   // ============================================
@@ -289,12 +311,14 @@ class CloudFunctionsService {
     required String requestId,
     required bool approved,
   }) async {
-    final callable = _functions.httpsCallable('approveReschedule');
-    final result = await callable.call({
-      'requestId': requestId,
-      'approved': approved,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('approveReschedule');
+      final result = await callable.call({
+        'requestId': requestId,
+        'approved': approved,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'approveReschedule');
   }
 
   // ============================================
@@ -306,9 +330,11 @@ class CloudFunctionsService {
     required String taskId,
     required String message,
   }) async {
-    final callable = _functions.httpsCallable('addRemark');
-    final result = await callable.call({'taskId': taskId, 'message': message});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('addRemark');
+      final result = await callable.call({'taskId': taskId, 'message': message});
+      return Map<String, dynamic>.from(result.data);
+    }, 'addRemark');
   }
 
   // ============================================
@@ -335,14 +361,16 @@ class CloudFunctionsService {
     String? avatarUrl,
     Map<String, bool>? notificationPreferences,
   }) async {
-    final callable = _functions.httpsCallable('updateProfile');
-    final result = await callable.call({
-      if (name != null) 'name': name,
-      if (avatarUrl != null) 'avatarUrl': avatarUrl,
-      if (notificationPreferences != null)
-        'notificationPreferences': notificationPreferences,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('updateProfile');
+      final result = await callable.call({
+        if (name != null) 'name': name,
+        if (avatarUrl != null) 'avatarUrl': avatarUrl,
+        if (notificationPreferences != null)
+          'notificationPreferences': notificationPreferences,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'updateProfile');
   }
 
   // ============================================
@@ -354,47 +382,59 @@ class CloudFunctionsService {
     required String email,
     String? teamId,
   }) async {
-    final callable = _functions.httpsCallable('sendInvite');
-    final result = await callable.call({
-      'email': email,
-      if (teamId != null) 'teamId': teamId,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('sendInvite');
+      final result = await callable.call({
+        'email': email,
+        if (teamId != null) 'teamId': teamId,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'sendInvite');
   }
 
   /// Resend an invite email (Super Admin only)
   Future<Map<String, dynamic>> resendInvite(String inviteId) async {
-    final callable = _functions.httpsCallable('resendInvite');
-    final result = await callable.call({'inviteId': inviteId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('resendInvite');
+      final result = await callable.call({'inviteId': inviteId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'resendInvite');
   }
 
   /// Cancel a pending invite (Super Admin only)
   Future<Map<String, dynamic>> cancelInvite(String inviteId) async {
-    final callable = _functions.httpsCallable('cancelInvite');
-    final result = await callable.call({'inviteId': inviteId});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('cancelInvite');
+      final result = await callable.call({'inviteId': inviteId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'cancelInvite');
   }
 
   /// Validate an invite token (public)
   Future<Map<String, dynamic>> validateInviteToken(String token) async {
-    final callable = _functions.httpsCallable('validateInviteToken');
-    final result = await callable.call({'token': token});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('validateInviteToken');
+      final result = await callable.call({'token': token});
+      return Map<String, dynamic>.from(result.data);
+    }, 'validateInviteToken');
   }
 
   /// Accept an invite after sign up
   Future<Map<String, dynamic>> acceptInvite(String token) async {
-    final callable = _functions.httpsCallable('acceptInvite');
-    final result = await callable.call({'token': token});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('acceptInvite');
+      final result = await callable.call({'token': token});
+      return Map<String, dynamic>.from(result.data);
+    }, 'acceptInvite');
   }
 
   /// Get all invites (Super Admin only)
   Future<Map<String, dynamic>> getInvites({String? status}) async {
-    final callable = _functions.httpsCallable('getInvites');
-    final result = await callable.call({if (status != null) 'status': status});
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('getInvites');
+      final result = await callable.call({if (status != null) 'status': status});
+      return Map<String, dynamic>.from(result.data);
+    }, 'getInvites');
   }
 
   // ============================================
@@ -403,9 +443,11 @@ class CloudFunctionsService {
 
   /// Delete own account and all associated data (Store compliance)
   Future<Map<String, dynamic>> deleteOwnAccount() async {
-    final callable = _functions.httpsCallable('deleteOwnAccount');
-    final result = await callable.call();
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('deleteOwnAccount');
+      final result = await callable.call();
+      return Map<String, dynamic>.from(result.data);
+    }, 'deleteOwnAccount', timeout: const Duration(seconds: 60));
   }
 
   // ============================================
@@ -421,16 +463,18 @@ class CloudFunctionsService {
     String? userId,
     List<String>? memberIds,
   }) async {
-    final callable = _functions.httpsCallable('exportReport');
-    final result = await callable.call({
-      'startDate': startDate.toIso8601String(),
-      'endDate': endDate.toIso8601String(),
-      if (teamId != null) 'teamId': teamId,
-      if (status != null) 'status': status,
-      if (userId != null) 'userId': userId,
-      if (memberIds != null) 'memberIds': memberIds,
-    });
-    return Map<String, dynamic>.from(result.data);
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('exportReport');
+      final result = await callable.call({
+        'startDate': startDate.toIso8601String(),
+        'endDate': endDate.toIso8601String(),
+        if (teamId != null) 'teamId': teamId,
+        if (status != null) 'status': status,
+        if (userId != null) 'userId': userId,
+        if (memberIds != null) 'memberIds': memberIds,
+      });
+      return Map<String, dynamic>.from(result.data);
+    }, 'exportReport', timeout: const Duration(seconds: 60));
   }
 
   // ============================================
@@ -478,14 +522,19 @@ class CloudFunctionsService {
     }, 'updateReportExemptList');
   }
 
-  /// Get the current exempt user IDs list.
-  /// Returns an empty list if none are configured yet.
-  Future<List<String>> getReportExemptList() async {
+  // getReportExemptList was removed — DataCacheProvider now reads
+  // config/reportExemptUsers directly via a Firestore real-time stream.
+
+  // ============================================
+  // TASK DELETION
+  // ============================================
+
+  /// Permanently delete a task and cleanup all related data (Creator or Super Admin)
+  Future<Map<String, dynamic>> deleteTask(String taskId) async {
     return _callWithTimeout(() async {
-      final callable = _functions.httpsCallable('getReportExemptList');
-      final result = await callable.call();
-      final data = Map<String, dynamic>.from(result.data);
-      return List<String>.from(data['userIds'] ?? []);
-    }, 'getReportExemptList');
+      final callable = _functions.httpsCallable('deleteTask');
+      final result = await callable.call({'taskId': taskId});
+      return Map<String, dynamic>.from(result.data);
+    }, 'deleteTask');
   }
 }
