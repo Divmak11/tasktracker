@@ -182,7 +182,7 @@ class _InviteUsersScreenState extends State<InviteUsersScreen>
       await _cloudFunctions.cancelInvite(invite.id);
 
       if (mounted) {
-        // Update only this invite in the list (optimistic update)
+        // Update only this invite in the list
         setState(() {
           _processingInviteIds.remove(invite.id);
           final index = _invites.indexWhere((i) => i.id == invite.id);

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/user_model.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/services/cloud_functions_service.dart';
 import '../../data/services/notification_service.dart';
@@ -113,7 +115,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         // Add to processing set to prevent double-clicks
         setState(() => _processingUsers.add(user.id));
 
-        // OPTIMISTIC UPDATE: Show success immediately
+        // Show success immediately
         NotificationService.showInAppNotification(
           context,
           title: 'Role Updated',
@@ -188,7 +190,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       // Add to processing set to prevent double-clicks
       setState(() => _processingUsers.add(user.id));
 
-      // OPTIMISTIC UPDATE: Show success immediately
+      // Show success immediately
       NotificationService.showInAppNotification(
         context,
         title: 'Access Revoked',
@@ -261,7 +263,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       // Add to processing set to prevent double-clicks
       setState(() => _processingUsers.add(user.id));
 
-      // OPTIMISTIC UPDATE: Show success immediately
+      // Show success immediately
       NotificationService.showInAppNotification(
         context,
         title: 'Access Restored',
@@ -477,18 +479,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
           // User List
           Expanded(
-            child: StreamBuilder<List<UserModel>>(
-              stream: _userRepository.getAllUsersStream(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-
-                if (!snapshot.hasData) {
+            child: Consumer<DataCacheProvider>(
+              builder: (context, cache, _) {
+                if (!cache.allUsersLoaded) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                var users = snapshot.data!;
+                var users = cache.allUsers;
 
                 // Apply role filter
                 if (_selectedRoleFilter != null) {
