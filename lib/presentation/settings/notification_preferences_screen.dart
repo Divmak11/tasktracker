@@ -60,7 +60,7 @@ class _NotificationPreferencesScreenState
       'approvalUpdates': _approvalUpdates,
     };
 
-    // OPTIMISTIC UPDATE: Show success and navigate back immediately
+    // Show success and navigate back immediately
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Preferences saved'),

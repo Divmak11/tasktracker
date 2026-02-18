@@ -135,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       await _cloudFunctions.deleteOwnAccount();
     } catch (e) {
       // Log error but continue to logout - account data is already deleted on server
-      debugPrint('❌ deleteOwnAccount error (will still logout): $e');
+      debugPrint('deleteOwnAccount error (will still logout): $e');
     }
 
     // ALWAYS logout after deletion attempt - account is deleted server-side
@@ -143,7 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       try {
         await authProvider.logout();
       } catch (e) {
-        debugPrint('❌ Logout error (will still navigate): $e');
+        debugPrint('Logout error (will still navigate): $e');
       }
       if (mounted) {
         context.go(AppRoutes.login);
@@ -225,7 +225,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
           case CalendarConnectResult.userCancelled:
             // User cancelled - no snackbar needed, just reset loading state
-            debugPrint('📅 Calendar connection cancelled by user');
+            debugPrint('Calendar connection cancelled by user');
             break;
 
           case CalendarConnectResult.networkError:

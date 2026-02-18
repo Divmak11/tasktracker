@@ -104,7 +104,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     final name = _nameController.text.trim();
     final hasNewImage = _selectedImage != null;
 
-    // OPTIMISTIC UPDATE: Show success and navigate back immediately
+    // Show success and navigate back immediately
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Profile updated successfully'),
