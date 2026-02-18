@@ -44,7 +44,7 @@ class _AddRemarkDialogState extends State<AddRemarkDialog> {
 
       final message = _messageController.text.trim();
       
-      // OPTIMISTIC UPDATE: Close dialog and show success immediately
+      // Close dialog and show success immediately
       Navigator.of(context).pop(true);
       NotificationService.showInAppNotification(
         context,

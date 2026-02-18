@@ -22,47 +22,100 @@ import 'widgets/remark_item.dart';
 import 'widgets/reschedule_request_dialog.dart';
 import 'secure_image_viewer.dart';
 
-class TaskDetailScreen extends StatelessWidget {
+class TaskDetailScreen extends StatefulWidget {
   final String taskId;
 
   const TaskDetailScreen({super.key, required this.taskId});
 
   @override
+  State<TaskDetailScreen> createState() => _TaskDetailScreenState();
+}
+
+class _TaskDetailScreenState extends State<TaskDetailScreen> {
+  bool _isDeleting = false;
+
+  // Repositories as stable State fields — NOT instantiated in build().
+  // Instantiating them in build() creates new objects on every rebuild,
+  // causing StreamBuilder to receive a new stream instance each time,
+  // which triggers an unnecessary reload cycle.
+  final TaskRepository _taskRepository = TaskRepository();
+  final UserRepository _userRepository = UserRepository();
+  final RemarkRepository _remarkRepository = RemarkRepository();
+
+  String get taskId => widget.taskId;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final taskRepository = TaskRepository();
-    final userRepository = UserRepository();
-    final remarkRepository = RemarkRepository();
     final authProvider = context.watch<AuthProvider>();
     final currentUser = authProvider.currentUser;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Task Details')),
-      body: StreamBuilder<TaskModel?>(
-        stream: taskRepository.getTaskStream(taskId),
-        builder: (context, taskSnapshot) {
-          if (taskSnapshot.hasError) {
-            return Center(child: Text('Error: ${taskSnapshot.error}'));
-          }
+    return StreamBuilder<TaskModel?>(
+      stream: _taskRepository.getTaskStream(taskId),
+      builder: (context, taskSnapshot) {
+        if (taskSnapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Task Details')),
+            body: Center(child: Text('Error: ${taskSnapshot.error}')),
+          );
+        }
 
-          if (!taskSnapshot.hasData || taskSnapshot.data == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        if (!taskSnapshot.hasData || taskSnapshot.data == null) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Task Details')),
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
 
-          final task = taskSnapshot.data!;
-          final currentUserId = currentUser?.id ?? '';
-          final isCreator = task.isCreator(currentUserId);
-          final isAssignee = task.isAssignee(currentUserId);
-          final isAdmin = currentUser?.role == UserRole.superAdmin;
-          final canSeeAllStatus = task.canSeeAllCompletionStatus(currentUserId);
+        final task = taskSnapshot.data!;
+        final currentUserId = currentUser?.id ?? '';
+        final isCreator = task.isCreator(currentUserId);
+        final isAssignee = task.isAssignee(currentUserId);
+        final isAdmin = currentUser?.role == UserRole.superAdmin;
+        final canSeeAllStatus = task.canSeeAllCompletionStatus(currentUserId);
 
-          // Only allow edit/cancel for ongoing tasks
-          final canEdit =
-              (isCreator || isAdmin) && task.status == TaskStatus.ongoing;
-          final canComplete = isAssignee && task.status == TaskStatus.ongoing;
+        // Only allow edit/cancel for ongoing tasks
+        final canEdit =
+            (isCreator || isAdmin) && task.status == TaskStatus.ongoing;
+        final canComplete = isAssignee && task.status == TaskStatus.ongoing;
+        // Delete is a permanent action — allowed for creator or super admin
+        // regardless of task status (e.g. cleaning up old completed tasks)
+        final canDelete = isCreator || isAdmin;
 
-          return Column(
+        return Stack(
+          children: [
+          Scaffold(
+          appBar: AppBar(
+            title: const Text('Task Details'),
+            actions: [
+              if (canDelete)
+                PopupMenuButton<String>(
+                  enabled: !_isDeleting,
+                  onSelected: (value) {
+                    if (value == 'delete') {
+                      _handleDelete(context, task);
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem<String>(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                          SizedBox(width: 12),
+                          Text(
+                            'Delete Task',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          body: Column(
             children: [
               Expanded(
                 child: SingleChildScrollView(
@@ -181,7 +234,7 @@ class TaskDetailScreen extends StatelessWidget {
                                   Text(
                                     task.completedAt!.isBefore(task.deadline)
                                         ? '✓ Completed on time'
-                                        : '⚠ Completed after deadline',
+                                        : 'Completed after deadline',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color:
                                           task.completedAt!.isBefore(
@@ -329,7 +382,7 @@ class TaskDetailScreen extends StatelessWidget {
                                 return Column(
                                   children: [
                                     StreamBuilder<UserModel?>(
-                                      stream: userRepository.getUserStream(
+                                      stream: _userRepository.getUserStream(
                                         assigneeId,
                                       ),
                                       builder: (context, assigneeSnapshot) {
@@ -362,7 +415,7 @@ class TaskDetailScreen extends StatelessWidget {
                               StreamBuilder<UserModel?>(
                                 stream:
                                     task.primaryAssigneeId.isNotEmpty
-                                        ? userRepository.getUserStream(
+                                        ? _userRepository.getUserStream(
                                           task.primaryAssigneeId,
                                         )
                                         : const Stream.empty(),
@@ -390,7 +443,7 @@ class TaskDetailScreen extends StatelessWidget {
                             const SizedBox(height: AppSpacing.sm),
                             // Created By Row
                             StreamBuilder<UserModel?>(
-                              stream: userRepository.getUserStream(
+                              stream: _userRepository.getUserStream(
                                 task.createdBy,
                               ),
                               builder: (context, creatorSnapshot) {
@@ -420,7 +473,7 @@ class TaskDetailScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: AppSpacing.sm),
                         StreamBuilder<List<TaskAssignmentModel>>(
-                          stream: taskRepository.getTaskAssignmentsStream(
+                          stream: _taskRepository.getTaskAssignmentsStream(
                             taskId,
                           ),
                           builder: (context, assignmentsSnapshot) {
@@ -455,7 +508,7 @@ class TaskDetailScreen extends StatelessWidget {
                                 children:
                                     assignments.map((assignment) {
                                       return StreamBuilder<UserModel?>(
-                                        stream: userRepository.getUserStream(
+                                        stream: _userRepository.getUserStream(
                                           assignment.userId,
                                         ),
                                         builder: (context, userSnapshot) {
@@ -652,7 +705,7 @@ class TaskDetailScreen extends StatelessWidget {
                           ),
                           const SizedBox(width: AppSpacing.sm),
                           StreamBuilder<List<RemarkModel>>(
-                            stream: remarkRepository.getTaskRemarksStream(
+                            stream: _remarkRepository.getTaskRemarksStream(
                               taskId,
                             ),
                             builder: (context, snapshot) {
@@ -699,7 +752,7 @@ class TaskDetailScreen extends StatelessWidget {
 
                       // Remarks List
                       StreamBuilder<List<RemarkModel>>(
-                        stream: remarkRepository.getTaskRemarksStream(taskId),
+                        stream: _remarkRepository.getTaskRemarksStream(taskId),
                         builder: (context, remarksSnapshot) {
                           if (remarksSnapshot.hasError) {
                             return Text(
@@ -780,7 +833,7 @@ class TaskDetailScreen extends StatelessWidget {
                               itemBuilder: (context, index) {
                                 final remark = remarks[index];
                                 return StreamBuilder<UserModel?>(
-                                  stream: userRepository.getUserStream(
+                                  stream: _userRepository.getUserStream(
                                     remark.userId,
                                   ),
                                   builder: (context, userSnapshot) {
@@ -825,7 +878,6 @@ class TaskDetailScreen extends StatelessWidget {
                           onPressed:
                               () => _handleComplete(
                                 context,
-                                taskRepository,
                                 task,
                               ),
                           icon: Icons.check_circle_outline,
@@ -887,7 +939,6 @@ class TaskDetailScreen extends StatelessWidget {
                                 onPressed:
                                     () => _handleCancel(
                                       context,
-                                      taskRepository,
                                       task,
                                     ),
                                 icon: const Icon(Icons.cancel_outlined, size: 18),
@@ -911,8 +962,31 @@ class TaskDetailScreen extends StatelessWidget {
                   ),
                 ),
             ],
-          );
-        },
+          ),
+        ),
+          if (_isDeleting) _buildDeletingOverlay(),
+          ],
+        );
+      },
+    );
+  }
+
+  // Closing Stack children
+  Widget _buildDeletingOverlay() {
+    return Container(
+      color: Colors.black54,
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'Deleting task...',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1086,7 +1160,6 @@ class TaskDetailScreen extends StatelessWidget {
 
   Future<void> _handleComplete(
     BuildContext context,
-    TaskRepository taskRepository,
     TaskModel task,
   ) async {
     final confirmed = await showDialog<bool>(
@@ -1109,8 +1182,6 @@ class TaskDetailScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
-      // OPTIMISTIC UPDATE: Show success immediately
-      // Use different message for multi-assignee tasks
       final isMultiAssignee = task.isMultiAssignee;
       NotificationService.showInAppNotification(
         context,
@@ -1123,20 +1194,14 @@ class TaskDetailScreen extends StatelessWidget {
         backgroundColor: Colors.green.shade700,
       );
 
-      // Navigate back to home for better UX
       context.pop();
 
-      // Fire cloud function in background (don't await)
-      // Firestore stream will auto-update UI with server state
-      // Use completeAssignment for multi-assignee, completeTask for legacy
       final cloudFunctions = CloudFunctionsService();
       final future =
           isMultiAssignee
               ? cloudFunctions.completeAssignment(task.id)
               : cloudFunctions.completeTask(task.id);
       future.catchError((error) {
-        // Show error with retry if background sync fails
-        // UI will naturally revert via Firestore stream since server wasn't updated
         if (context.mounted) {
           final message =
               error is FirebaseFunctionsException
@@ -1150,7 +1215,7 @@ class TaskDetailScreen extends StatelessWidget {
               action: SnackBarAction(
                 label: 'Retry',
                 textColor: Colors.white,
-                onPressed: () => _handleComplete(context, taskRepository, task),
+                onPressed: () => _handleComplete(context, task),
               ),
             ),
           );
@@ -1162,7 +1227,6 @@ class TaskDetailScreen extends StatelessWidget {
 
   Future<void> _handleCancel(
     BuildContext context,
-    TaskRepository taskRepository,
     TaskModel task,
   ) async {
     final confirmed = await showDialog<bool>(
@@ -1186,7 +1250,6 @@ class TaskDetailScreen extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
-      // OPTIMISTIC UPDATE: Show success immediately (no loading dialog)
       NotificationService.showInAppNotification(
         context,
         title: 'Task Cancelled',
@@ -1195,14 +1258,10 @@ class TaskDetailScreen extends StatelessWidget {
         backgroundColor: Colors.orange.shade700,
       );
 
-      // Navigate back to home for better UX
       context.pop();
 
-      // Fire cloud function in background (don't await)
-      // Firestore stream will auto-update UI with server state
       final cloudFunctions = CloudFunctionsService();
       cloudFunctions.cancelTask(task.id).catchError((error) {
-        // Show error with retry if background sync fails
         if (context.mounted) {
           final message =
               error is FirebaseFunctionsException
@@ -1216,7 +1275,7 @@ class TaskDetailScreen extends StatelessWidget {
               action: SnackBarAction(
                 label: 'Retry',
                 textColor: Colors.white,
-                onPressed: () => _handleCancel(context, taskRepository, task),
+                onPressed: () => _handleCancel(context, task),
               ),
             ),
           );
@@ -1225,4 +1284,65 @@ class TaskDetailScreen extends StatelessWidget {
       });
     }
   }
+
+  Future<void> _handleDelete(
+    BuildContext context,
+    TaskModel task,
+  ) async {
+    // Step 1: Confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Task'),
+        content: Text(
+          'Are you sure you want to permanently delete "${task.title}"?\n\n'
+          'This will remove the task, all assignments, attachments, and '
+          'related data. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Step 2: Show loading overlay and await deletion
+    setState(() => _isDeleting = true);
+
+    try {
+      await _taskRepository.deleteTask(task.id);
+      if (mounted) context.pop();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isDeleting = false);
+      final message =
+          error is FirebaseFunctionsException
+              ? error.message ?? error.code
+              : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete task: $message'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Retry',
+            textColor: Colors.white,
+            onPressed: () {
+                if (mounted) _handleDelete(context, task);
+              },
+          ),
+        ),
+      );
+    }
+  }
 }
+
