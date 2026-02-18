@@ -77,7 +77,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     ) async {
       // Skip if this is the same user we already handled above
       if (_firebaseUser?.uid == firebaseUser?.uid && _firebaseUser != null) {
-        debugPrint('🔄 Auth stream: Same user, skipping duplicate event');
+        debugPrint('Auth stream: Same user, skipping duplicate event');
         return;
       }
 
@@ -113,7 +113,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       // FIRST: Check if Firebase Auth has a session (works for ALL auth methods)
       final firebaseUser = _authRepository.currentFirebaseUser;
       if (firebaseUser != null) {
-        debugPrint('✅ Bootstrapping: Firebase session restored ${firebaseUser.uid}');
+        debugPrint('Bootstrapping: Firebase session restored ${firebaseUser.uid}');
         // Auth state stream will fire with this user - no action needed
         return;
       }
@@ -122,7 +122,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       final result = await _authRepository.signInWithGoogleSilently();
       
       if (result?.user != null) {
-         debugPrint('✅ Bootstrapping: Silent Google sign-in restored ${result!.user!.uid}');
+         debugPrint('Bootstrapping: Silent Google sign-in restored ${result!.user!.uid}');
          // The authStateChanges stream will fire with the new user
          return;
       }
@@ -130,7 +130,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       debugPrint('🔓 Bootstrapping: No session found');
       _clearUser(); // Finalize logout state
     } catch (e) {
-      debugPrint('❌ Bootstrapping: Silent sign-in failed: $e');
+      debugPrint('Bootstrapping: Silent sign-in failed: $e');
       _clearUser(); // Finalize logout state
     } finally {
       _isInitialLoad = false;
@@ -152,12 +152,12 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       final existingUser = await _userRepository.getUser(userId);
 
       if (existingUser == null) {
-        debugPrint('⚠️ User document not found. Creating new user...');
+        debugPrint('User document not found. Creating new user...');
 
         // Get Firebase user info
         final firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
         if (firebaseUser == null) {
-          debugPrint('❌ Firebase user is null!');
+          debugPrint('Firebase user is null!');
           _isLoading = false;
           notifyListeners();
           return;
@@ -181,10 +181,10 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
         );
 
         debugPrint(
-          '✅ Creating user: ${newUser.email} with role: ${newUser.role}, status: ${newUser.status}',
+          'Creating user: ${newUser.email} with role: ${newUser.role}, status: ${newUser.status}',
         );
         await _userRepository.createUser(newUser);
-        debugPrint('✅ User document created successfully');
+        debugPrint('User document created successfully');
       }
 
       // Listen to user document changes
@@ -205,7 +205,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
                 notifyListeners();
                 // Force logout asynchronously
                 logout().catchError((e) {
-                  debugPrint('❌ Auto-logout error: $e');
+                  debugPrint('Auto-logout error: $e');
                 });
                 return;
               }
@@ -225,25 +225,25 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
                 _calendarVerifiedThisSession = true;
                 CalendarService().verifyConnectionStatus().then((isValid) {
                   if (!isValid) {
-                    debugPrint('⚠️ Calendar connection was invalidated, refreshing user data...');
+                    debugPrint('Calendar connection was invalidated, refreshing user data...');
                     // Backend already set googleCalendarConnected = false
                     // The stream will automatically update with the new value
                   }
                 }).catchError((e) {
-                  debugPrint('❌ Calendar verification error: $e');
+                  debugPrint('Calendar verification error: $e');
                 });
               }
 
               notifyListeners();
             },
             onError: (error) {
-              debugPrint('❌ Error loading user data: $error');
+              debugPrint('Error loading user data: $error');
               _isLoading = false;
               notifyListeners();
             },
           );
     } catch (e) {
-      debugPrint('❌ Error setting up user stream: $e');
+      debugPrint('Error setting up user stream: $e');
       _isLoading = false;
       notifyListeners();
     } finally {
@@ -262,22 +262,22 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
 
     try {
       final result = await _authRepository.signInWithGoogle();
-      debugPrint('✅ Google Sign-In successful');
+      debugPrint('Google Sign-In successful');
       
       // Exchange serverAuthCode for calendar tokens immediately
       // This enables seamless calendar toggle without showing account picker again
       if (result.serverAuthCode != null) {
-        debugPrint('📅 Exchanging calendar auth code...');
+        debugPrint('Exchanging calendar auth code...');
         try {
           final cloudFunctions = CloudFunctionsService();
           cloudFunctions.exchangeCalendarAuthCode(result.serverAuthCode!);
-          debugPrint('✅ Calendar tokens exchanged and stored');
+          debugPrint('Calendar tokens exchanged and stored');
         } catch (calendarError) {
           // Non-fatal: User can still use the app, calendar toggle will retry
-          debugPrint('⚠️ Calendar token exchange failed (non-fatal): $calendarError');
+          debugPrint('Calendar token exchange failed (non-fatal): $calendarError');
         }
       } else {
-        debugPrint('ℹ️ No serverAuthCode received (calendar connection will require manual toggle)');
+        debugPrint('No serverAuthCode received (calendar connection will require manual toggle)');
       }
       
       // User data will be loaded automatically via auth state listener
@@ -287,7 +287,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
 
       // Check if user has revoked status
       if (_currentUser?.status == UserStatus.revoked) {
-        debugPrint('⚠️ User has revoked status, signing out from Google only');
+        debugPrint('User has revoked status, signing out from Google only');
         // Sign out from Google only to force account picker on next attempt
         // Keep Firebase session so router can navigate to AccessRevokedScreen
         await _authRepository.signOutGoogleOnly();
@@ -297,7 +297,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
         return;
       }
     } catch (e) {
-      debugPrint('❌ Google Sign-In failed: $e');
+      debugPrint('Google Sign-In failed: $e');
 
       // Always sign out from Google on any error to force account picker on next attempt
       await _authRepository.signOutGoogleOnly();
@@ -321,7 +321,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
     }
 
     if (_currentUser == null) {
-      debugPrint('⚠️ User data load timeout after ${maxWait.inSeconds}s');
+      debugPrint('User data load timeout after ${maxWait.inSeconds}s');
     }
   }
 
@@ -333,10 +333,10 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
 
     try {
       await _authRepository.signInWithApple();
-      debugPrint('✅ Apple Sign-In successful');
+      debugPrint('Apple Sign-In successful');
       // User data will be loaded automatically via auth state listener
     } catch (e) {
-      debugPrint('❌ Apple Sign-In failed: $e');
+      debugPrint('Apple Sign-In failed: $e');
       _isLoading = false;
       notifyListeners();
       rethrow;
@@ -359,9 +359,9 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       // Wait for user data to load
       await _waitForUserData();
       
-      debugPrint('✅ Email Sign-Up successful');
+      debugPrint('Email Sign-Up successful');
     } catch (e) {
-      debugPrint('❌ Email Sign-Up failed: $e');
+      debugPrint('Email Sign-Up failed: $e');
       _isLoading = false;
       notifyListeners();
       rethrow;
@@ -376,13 +376,13 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
 
     try {
       await _authRepository.signInWithEmailAndPassword(email, password);
-      debugPrint('✅ Email Sign-In successful');
+      debugPrint('Email Sign-In successful');
       // User data will be loaded automatically via auth state listener
 
       // Wait for user data to load (via authStateChanges listener)
       await _waitForUserData();
     } catch (e) {
-      debugPrint('❌ Email Sign-In failed: $e');
+      debugPrint('Email Sign-In failed: $e');
       _isLoading = false;
       notifyListeners();
       rethrow;
@@ -428,7 +428,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('❌ Error refreshing user: $e');
+      debugPrint('Error refreshing user: $e');
     }
   }
 
@@ -448,7 +448,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       try {
         await _authRepository.deleteAccount();
       } catch (e) {
-        debugPrint('⚠️ Failed to delete auth account (likely requires recent login): $e');
+        debugPrint('Failed to delete auth account (likely requires recent login): $e');
         // Even if auth delete fails, we should clear local state since data is gone
         // proper logout will force user to re-login if they want to recover (though data is gone)
         // ideally we should prompt for re-login BEFORE starting this process, but for now:
@@ -458,7 +458,7 @@ class AuthProvider with ChangeNotifier, WidgetsBindingObserver {
       // 3. Clear local state (Logout)
       _clearUser();
     } catch (e) {
-      debugPrint('❌ Delete account failed: $e');
+      debugPrint('Delete account failed: $e');
       _isLoading = false;
       notifyListeners();
       rethrow;
