@@ -79,7 +79,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
       final auth = context.read<AuthProvider>();
       final user = auth.currentUser;
 
-      // Team Admin: only show members from their teams
+      // Team Admin: only show active members from their teams
       if (user != null && user.role == UserRole.teamAdmin) {
         final allTeams = await _teamRepository.getAllTeamsStream().first;
         final myTeams = allTeams.where((t) => t.adminId == user.id).toList();
@@ -88,12 +88,17 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
           myTeamMemberIds.addAll(team.memberIds);
         }
         setState(() {
-          _members = members.where((m) => myTeamMemberIds.contains(m.id)).toList();
+          _members = members
+              .where((m) => m.status == UserStatus.active && myTeamMemberIds.contains(m.id))
+              .toList();
           _isLoadingMembers = false;
         });
       } else {
+        // Super Admin: show all active users
         setState(() {
-          _members = members;
+          _members = members
+              .where((m) => m.status == UserStatus.active)
+              .toList();
           _isLoadingMembers = false;
         });
       }
@@ -181,14 +186,35 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
 
   Future<Directory> _getReportDirectory() async {
     if (Platform.isAndroid) {
-      // Request storage permission for Downloads folder access
-      var status = await Permission.storage.request();
-      if (!status.isGranted) {
-        // For Android 11+, try notification permission for download notification
-        await Permission.notification.request();
+      // Android 11+ (API 30+) enforces scoped storage.
+      // Permission.storage is a no-op on API 30+.
+      // We need Permission.manageExternalStorage for Downloads folder access.
+      final sdkInt = await _getAndroidSdkVersion();
+
+      if (sdkInt >= 30) {
+        // Android 11+: request MANAGE_EXTERNAL_STORAGE
+        var status = await Permission.manageExternalStorage.status;
+        if (!status.isGranted) {
+          status = await Permission.manageExternalStorage.request();
+        }
+        if (!status.isGranted) {
+          // Fallback: use app-scoped external directory (no permission needed)
+          final appDir = await getExternalStorageDirectory();
+          if (appDir != null) return appDir;
+          return await getApplicationDocumentsDirectory();
+        }
+      } else {
+        // Android 10 and below: classic storage permission
+        var status = await Permission.storage.status;
+        if (!status.isGranted) {
+          status = await Permission.storage.request();
+        }
+        if (!status.isGranted) {
+          return await getApplicationDocumentsDirectory();
+        }
       }
 
-      // Use public Downloads folder for easy user access
+      // Try public Downloads folder
       final downloadsDir = Directory('/storage/emulated/0/Download');
       if (await downloadsDir.exists()) {
         return downloadsDir;
@@ -204,11 +230,31 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
     }
   }
 
+  /// Get the Android SDK version (API level).
+  /// Returns 0 on non-Android platforms.
+  Future<int> _getAndroidSdkVersion() async {
+    try {
+      // Use the build.version.sdkInt from platform channels
+      // This is available without any additional dependencies
+      final version = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse(version.stdout.toString().trim()) ?? 0;
+    } catch (_) {
+      // If getprop fails, assume modern Android (conservative)
+      return 33;
+    }
+  }
+
   Future<void> _generateReport() async {
     setState(() => _isGenerating = true);
 
     try {
       final cloudFunctions = CloudFunctionsService();
+
+      // Collect memberIds to pass to backend for per-user grouping
+      // This ensures users with zero tasks are still included in the report
+      final memberIds = _selectedMember != 'all'
+          ? [_selectedMember]  // Single member selected
+          : _members.map((m) => m.id).toList();  // All active members
 
       // Call backend to generate PDF
       final result = await cloudFunctions.exportReport(
@@ -217,6 +263,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
         teamId: _selectedTeam,
         status: _selectedStatus,
         userId: _selectedMember != 'all' ? _selectedMember : null,
+        memberIds: memberIds,
       );
 
       if (!mounted) return;
@@ -280,12 +327,17 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
     try {
       final cloudFunctions = CloudFunctionsService();
 
+      final memberIds = _selectedMember != 'all'
+          ? [_selectedMember]
+          : _members.map((m) => m.id).toList();
+
       final result = await cloudFunctions.exportReport(
         startDate: _startDate,
         endDate: _endDate,
         teamId: _selectedTeam,
         status: _selectedStatus,
         userId: _selectedMember != 'all' ? _selectedMember : null,
+        memberIds: memberIds,
       );
 
       if (!mounted) return;
