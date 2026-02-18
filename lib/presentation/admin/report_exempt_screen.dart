@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
 import '../../data/models/user_model.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/services/cloud_functions_service.dart';
 import '../../data/services/notification_service.dart';
 import '../../core/constants/app_spacing.dart';
@@ -10,10 +11,10 @@ import '../../core/constants/app_spacing.dart';
 /// from Team Admin reports.
 ///
 /// Design decisions:
-///  - Loads all users via a single Firestore stream (there are < 100).
-///  - Exempt list fetched once on init from the Cloud Function.
-///  - Client-side search with 300ms debounce prevents API flooding.
-///  - Each toggle immediately saves to the backend (auto-save per toggle).
+///  - User list consumed from [DataCacheProvider.allUsers] — no extra Firestore listener.
+///  - Exempt list consumed from [DataCacheProvider.cachedExemptIds] — no Cloud Function read.
+///  - Optimistic toggle: updates the provider immediately, then fires the write in background.
+///  - Client-side search with 300ms debounce prevents unnecessary rebuilds.
 ///  - Per-user loading state prevents double-tap issues.
 class ReportExemptScreen extends StatefulWidget {
   const ReportExemptScreen({super.key});
@@ -27,42 +28,14 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
 
-  // State
-  Set<String> _exemptIds = {};
   final Set<String> _savingUserIds = {}; // Users currently being toggled
-  bool _isLoading = true;
   String _searchQuery = '';
-  String? _errorMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadExemptList();
-  }
 
   @override
   void dispose() {
     _searchController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _loadExemptList() async {
-    try {
-      final ids = await _cloudFunctions.getReportExemptList();
-      if (!mounted) return;
-      setState(() {
-        _exemptIds = ids.toSet();
-        _isLoading = false;
-        _errorMessage = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to load exempt list: $e';
-      });
-    }
   }
 
   void _onSearchChanged(String value) {
@@ -74,36 +47,36 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
   }
 
   /// Toggle a user's exempt status and immediately save to backend.
+  ///
+  /// IMPORTANT: reads [DataCacheProvider.cachedExemptIds] live at the moment
+  /// of the call — never from a closure parameter — to prevent the race
+  /// condition where two rapid toggles compute their new sets from the same
+  /// stale snapshot and the second write silently overwrites the first.
   Future<void> _toggleUser(String userId) async {
     if (_savingUserIds.contains(userId)) return; // Prevent double-tap
 
-    // Optimistic UI toggle
-    final wasExempt = _exemptIds.contains(userId);
-    setState(() {
-      _savingUserIds.add(userId);
-      if (wasExempt) {
-        _exemptIds.remove(userId);
-      } else {
-        _exemptIds.add(userId);
-      }
-    });
+    final cache = context.read<DataCacheProvider>();
+    // Read LIVE state at the moment of action, not from a captured closure.
+    final currentExemptIds = Set<String>.from(cache.cachedExemptIds);
+    final wasExempt = currentExemptIds.contains(userId);
+
+    // Optimistic UI: update the provider immediately
+    final newIds = Set<String>.from(currentExemptIds);
+    if (wasExempt) {
+      newIds.remove(userId);
+    } else {
+      newIds.add(userId);
+    }
+    cache.setExemptIds(newIds);
+    setState(() => _savingUserIds.add(userId));
 
     try {
-      await _cloudFunctions.updateReportExemptList(_exemptIds.toList());
-      if (!mounted) return;
-      setState(() => _savingUserIds.remove(userId));
+      await _cloudFunctions.updateReportExemptList(newIds.toList());
+      // Firestore stream in DataCacheProvider will confirm the write automatically.
     } catch (e) {
+      // Revert optimistic update on failure
+      cache.setExemptIds(currentExemptIds);
       if (!mounted) return;
-      // Revert on failure
-      setState(() {
-        if (wasExempt) {
-          _exemptIds.add(userId);
-        } else {
-          _exemptIds.remove(userId);
-        }
-        _savingUserIds.remove(userId);
-      });
-
       NotificationService.showInAppNotification(
         context,
         title: 'Error',
@@ -111,10 +84,12 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
         icon: Icons.error_outline,
         backgroundColor: Colors.red.shade700,
       );
+    } finally {
+      if (mounted) setState(() => _savingUserIds.remove(userId));
     }
   }
 
-  List<UserModel> _filterUsers(List<UserModel> users) {
+  List<UserModel> _filterUsers(List<UserModel> users, Set<String> exemptIds) {
     // Only show active users (no point exempting pending/revoked)
     var filtered = users.where((u) => u.status == UserStatus.active).toList();
 
@@ -128,8 +103,8 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
 
     // Sort: exempt first, then alphabetical by name
     filtered.sort((a, b) {
-      final aExempt = _exemptIds.contains(a.id);
-      final bExempt = _exemptIds.contains(b.id);
+      final aExempt = exemptIds.contains(a.id);
+      final bExempt = exemptIds.contains(b.id);
       if (aExempt != bExempt) return aExempt ? -1 : 1;
       return a.name.compareTo(b.name);
     });
@@ -145,145 +120,98 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
       appBar: AppBar(
         title: const Text('Report Exempt Users'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.error_outline,
-                            size: 48, color: theme.colorScheme.error),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(_errorMessage!,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyMedium),
-                        const SizedBox(height: AppSpacing.md),
-                        ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              _isLoading = true;
-                              _errorMessage = null;
-                            });
-                            _loadExemptList();
-                          },
-                          child: const Text('Retry'),
+      body: Consumer<DataCacheProvider>(
+        builder: (context, cache, _) {
+          final allUsers = cache.allUsers;
+          final exemptIds = cache.cachedExemptIds;
+          final filtered = _filterUsers(allUsers, exemptIds);
+
+          return Column(
+            children: [
+              // Info banner
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 20,
+                        color: theme.colorScheme.onPrimaryContainer),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        'Toggle users whose tasks should be hidden from Team Admin reports. Changes are saved automatically.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onPrimaryContainer,
                         ),
-                      ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Search bar
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: _onSearchChanged,
+                  decoration: InputDecoration(
+                    hintText: 'Search by name or email...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearchChanged('');
+                            },
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                )
-              : Column(
-                  children: [
-                    // Info banner
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      color: theme.colorScheme.primaryContainer
-                          .withValues(alpha: 0.3),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              size: 20,
-                              color: theme.colorScheme.onPrimaryContainer),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
+                ),
+              ),
+
+              // Exempt count chip
+              if (exemptIds.isNotEmpty)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Chip(
+                      avatar: const Icon(Icons.visibility_off, size: 16),
+                      label: Text(
+                          '${exemptIds.length} user${exemptIds.length == 1 ? '' : 's'} exempt'),
+                      backgroundColor: theme.colorScheme.errorContainer
+                          .withValues(alpha: 0.5),
+                    ),
+                  ),
+                ),
+
+              // User list — show spinner until BOTH user list AND exempt list
+              // have delivered their first snapshot. Checking only allUsers.isEmpty
+              // would show a permanent spinner for orgs with zero users, and would
+              // briefly show all toggles as OFF if exemptIds arrives after allUsers.
+              Expanded(
+                child: (!cache.allUsersLoaded || !cache.exemptListLoaded)
+                    ? const Center(child: CircularProgressIndicator())
+                    : filtered.isEmpty
+                        ? Center(
                             child: Text(
-                              'Toggle users whose tasks should be hidden from Team Admin reports. Changes are saved automatically.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onPrimaryContainer,
+                              _searchQuery.isNotEmpty
+                                  ? 'No users match "$_searchQuery"'
+                                  : 'No active users found',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Search bar
-                    Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: TextField(
-                        controller: _searchController,
-                        onChanged: _onSearchChanged,
-                        decoration: InputDecoration(
-                          hintText: 'Search by name or email...',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searchQuery.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _onSearchChanged('');
-                                  },
-                                )
-                              : null,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Exempt count
-                    if (_exemptIds.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.md),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Chip(
-                            avatar: const Icon(Icons.visibility_off, size: 16),
-                            label: Text(
-                                '${_exemptIds.length} user${_exemptIds.length == 1 ? '' : 's'} exempt'),
-                            backgroundColor:
-                                theme.colorScheme.errorContainer
-                                    .withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ),
-
-                    // User list
-                    Expanded(
-                      child: StreamBuilder<List<UserModel>>(
-                        stream: FirebaseFirestore.instance
-                            .collection('users')
-                            .snapshots()
-                            .map((snapshot) => snapshot.docs
-                                .map((doc) =>
-                                    UserModel.fromJson(doc.data(), doc.id))
-                                .toList()),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Center(
-                                child: CircularProgressIndicator());
-                          }
-
-                          if (snapshot.hasError) {
-                            return Center(
-                              child: Text('Error loading users: ${snapshot.error}'),
-                            );
-                          }
-
-                          final allUsers = snapshot.data ?? [];
-                          final filtered = _filterUsers(allUsers);
-
-                          if (filtered.isEmpty) {
-                            return Center(
-                              child: Text(
-                                _searchQuery.isNotEmpty
-                                    ? 'No users match "$_searchQuery"'
-                                    : 'No active users found',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            );
-                          }
-
-                          return ListView.separated(
+                          )
+                        : ListView.separated(
                             padding: const EdgeInsets.symmetric(
                                 vertical: AppSpacing.sm),
                             itemCount: filtered.length,
@@ -291,8 +219,9 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
                                 const Divider(height: 1),
                             itemBuilder: (context, index) {
                               final user = filtered[index];
-                              final isExempt = _exemptIds.contains(user.id);
-                              final isSaving = _savingUserIds.contains(user.id);
+                              final isExempt = exemptIds.contains(user.id);
+                              final isSaving =
+                                  _savingUserIds.contains(user.id);
 
                               return SwitchListTile(
                                 value: isExempt,
@@ -325,7 +254,8 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
                                     : CircleAvatar(
                                         backgroundColor: isExempt
                                             ? theme.colorScheme.errorContainer
-                                            : theme.colorScheme.surfaceContainerHighest,
+                                            : theme.colorScheme
+                                                .surfaceContainerHighest,
                                         child: Icon(
                                           isExempt
                                               ? Icons.visibility_off
@@ -333,17 +263,18 @@ class _ReportExemptScreenState extends State<ReportExemptScreen> {
                                           size: 20,
                                           color: isExempt
                                               ? theme.colorScheme.error
-                                              : theme.colorScheme.onSurfaceVariant,
+                                              : theme.colorScheme
+                                                  .onSurfaceVariant,
                                         ),
                                       ),
                               );
                             },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
+                          ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
