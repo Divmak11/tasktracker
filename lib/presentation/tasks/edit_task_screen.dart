@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/repositories/task_repository.dart';
 import '../../data/services/notification_service.dart';
+import '../../data/services/cloud_functions_service.dart';
+import '../../data/services/storage_service.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
 
@@ -22,12 +27,17 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
   final _titleController = TextEditingController();
   final _subtitleController = TextEditingController();
   final _taskRepository = TaskRepository();
+  final _cloudFunctions = CloudFunctionsService();
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isOverdue = false;
+
+  // Attachment management
+  final List<String> _existingUrls = []; // URLs already in Firestore
+  final List<XFile> _newImages = []; // New images to upload
 
   @override
   void initState() {
@@ -53,6 +63,8 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
           );
           // Check if task is overdue
           _isOverdue = task.isOverdue;
+          // Load existing attachments
+          _existingUrls.addAll(task.attachmentUrls);
           _isLoading = false;
         });
       }
@@ -169,24 +181,52 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         return;
       }
 
-      // OPTIMISTIC UPDATE: Show success and navigate back immediately
-      NotificationService.showInAppNotification(
-        context,
-        title: 'Task Updated',
-        message: 'Changes saved successfully',
-        icon: Icons.check_circle,
-        backgroundColor: Colors.green.shade700,
-      );
-      context.pop();
+      setState(() => _isSaving = true);
 
-      // Fire in background - task detail will update via Firestore stream
-      _taskRepository.updateTask(widget.taskId, {
-        'title': title,
-        'subtitle': subtitle,
-        'deadline': deadline,
-      }).catchError((error) {
-        debugPrint('Failed to update task: $error');
-      });
+      try {
+        // Upload new images if any
+        List<String> allUrls = List<String>.from(_existingUrls);
+        if (_newImages.isNotEmpty) {
+          final newUrls = await StorageService.uploadAll(
+            taskId: widget.taskId,
+            files: _newImages.map((xf) => File(xf.path)).toList(),
+          );
+          allUrls.addAll(newUrls);
+        }
+
+        // Use cloud function to update (handles orphan cleanup for removed URLs)
+        await _cloudFunctions.updateTask(
+          taskId: widget.taskId,
+          title: title,
+          subtitle: subtitle,
+          deadline: deadline,
+          attachmentUrls: allUrls,
+        );
+
+        if (mounted) {
+          NotificationService.showInAppNotification(
+            context,
+            title: 'Task Updated',
+            message: 'Changes saved successfully',
+            icon: Icons.check_circle,
+            backgroundColor: Colors.green.shade700,
+          );
+          context.pop();
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to update task: $error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isSaving = false);
+        }
+      }
     }
   }
 
@@ -404,6 +444,21 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
                           ),
                         ],
                       ),
+
+                      // Attachments Section (only show when not overdue)
+                      if (!_isOverdue) ...[
+                        const SizedBox(height: AppSpacing.lg),
+                        Text('Attachments', style: theme.textTheme.titleMedium),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          '${_existingUrls.length + _newImages.length} / ${StorageService.maxAttachments}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        _buildEditAttachmentArea(theme, isDark),
+                      ],
                     ],
                   ),
                 ),
@@ -417,6 +472,166 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
                 text: 'Save Changes',
                 onPressed: _handleSave,
                 isLoading: _isSaving,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImages() async {
+    final totalCount = _existingUrls.length + _newImages.length;
+    final remaining = StorageService.maxAttachments - totalCount;
+    if (remaining <= 0) return;
+
+    final picker = ImagePicker();
+    final picked = await picker.pickMultiImage(
+      imageQuality: 70,
+      maxWidth: 1920,
+    );
+    if (picked.isEmpty || !mounted) return;
+
+    setState(() {
+      final take = picked.take(remaining).toList();
+      _newImages.addAll(take);
+    });
+  }
+
+  Widget _buildEditAttachmentArea(ThemeData theme, bool isDark) {
+    final totalCount = _existingUrls.length + _newImages.length;
+    final showAdd = totalCount < StorageService.maxAttachments;
+
+    return SizedBox(
+      height: 100,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: totalCount + (showAdd ? 1 : 0),
+        separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, index) {
+          // Existing URL thumbnails
+          if (index < _existingUrls.length) {
+            return _buildExistingThumbnail(index, theme, isDark);
+          }
+          // New image thumbnails
+          final newIndex = index - _existingUrls.length;
+          if (newIndex < _newImages.length) {
+            return _buildNewThumbnail(newIndex, theme, isDark);
+          }
+          // Add button
+          return _buildAddTile(theme, isDark);
+        },
+      ),
+    );
+  }
+
+  Widget _buildExistingThumbnail(int index, ThemeData theme, bool isDark) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          child: CachedNetworkImage(
+            imageUrl: _existingUrls[index],
+            width: 100,
+            height: 100,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => Container(
+              width: 100,
+              height: 100,
+              color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+            errorWidget: (_, __, ___) => Container(
+              width: 100,
+              height: 100,
+              color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+              child: const Icon(Icons.broken_image_outlined, size: 24),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: GestureDetector(
+            onTap: () => setState(() => _existingUrls.removeAt(index)),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, color: Colors.white, size: 14),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNewThumbnail(int index, ThemeData theme, bool isDark) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          child: Image.file(
+            File(_newImages[index].path),
+            width: 100,
+            height: 100,
+            fit: BoxFit.cover,
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: GestureDetector(
+            onTap: () => setState(() => _newImages.removeAt(index)),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, color: Colors.white, size: 14),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAddTile(ThemeData theme, bool isDark) {
+    return GestureDetector(
+      onTap: _pickImages,
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.neutral800 : AppColors.neutral100,
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          border: Border.all(
+            color: isDark ? AppColors.neutral700 : AppColors.neutral300,
+            style: BorderStyle.solid,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.add_photo_alternate_outlined,
+              color: isDark ? AppColors.neutral400 : AppColors.neutral500,
+              size: 28,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Add',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: isDark ? AppColors.neutral400 : AppColors.neutral500,
               ),
             ),
           ],
