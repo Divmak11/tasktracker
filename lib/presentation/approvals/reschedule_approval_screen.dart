@@ -149,7 +149,7 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
     // Set processing to prevent double-clicks
     setState(() => _isProcessing = true);
 
-    // OPTIMISTIC UPDATE: Show success immediately
+    // Show success immediately
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Reschedule approved'),
@@ -214,7 +214,7 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
     // Set processing to prevent double-clicks
     setState(() => _isProcessing = true);
 
-    // OPTIMISTIC UPDATE: Show success immediately
+    // Show success immediately
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Reschedule rejected'),

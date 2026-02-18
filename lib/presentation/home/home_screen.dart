@@ -78,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (_lastCalendarRefresh != null &&
         DateTime.now().difference(_lastCalendarRefresh!) <
             _calendarRefreshCooldown) {
-      debugPrint('📅 Calendar token refresh skipped (within cooldown)');
+      debugPrint('Calendar token refresh skipped (within cooldown)');
       return;
     }
 
@@ -92,10 +92,10 @@ class _HomeScreenState extends State<HomeScreen>
 
       switch (result) {
         case CalendarRefreshResult.success:
-          debugPrint('📅 Calendar token refreshed successfully');
+          debugPrint('Calendar token refreshed successfully');
           break;
         case CalendarRefreshResult.failed:
-          debugPrint('📅 Calendar token refresh failed');
+          debugPrint('Calendar token refresh failed');
           // Show non-intrusive message only if user might notice sync issues
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -111,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen>
           );
           break;
         case CalendarRefreshResult.reconnectNeeded:
-          debugPrint('📅 Calendar reconnection needed');
+          debugPrint('Calendar reconnection needed');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text(
@@ -360,34 +360,50 @@ class _HomeScreenState extends State<HomeScreen>
         controller: _tabController,
         children: [
           // Ongoing Tasks Tab
-          _buildFilterableTaskList(
-            context,
-            stream: _getOngoingStream(currentUser.id),
-            emptyMessage: 'No ongoing tasks',
-            selectedUserId: _ongoingFilterUserId,
-            onFilterChanged:
-                (userId) => setState(() => _ongoingFilterUserId = userId),
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) => _buildFilterableTaskList(
+              context,
+              stream: _getOngoingStream(currentUser.id),
+              initialData: cache.cachedOngoingTasks.isNotEmpty
+                  ? cache.cachedOngoingTasks
+                  : null,
+              emptyMessage: 'No ongoing tasks',
+              selectedUserId: _ongoingFilterUserId,
+              onFilterChanged:
+                  (userId) => setState(() => _ongoingFilterUserId = userId),
+            ),
           ),
 
           // Past Tasks Tab
-          _buildFilterableTaskList(
-            context,
-            stream: _getPastStream(currentUser.id),
-            emptyMessage: 'No past tasks',
-            selectedUserId: _pastFilterUserId,
-            onFilterChanged:
-                (userId) => setState(() => _pastFilterUserId = userId),
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) => _buildFilterableTaskList(
+              context,
+              stream: _getPastStream(currentUser.id),
+              initialData: cache.cachedPastTasks.isNotEmpty
+                  ? cache.cachedPastTasks
+                  : null,
+              emptyMessage: 'No past tasks',
+              selectedUserId: _pastFilterUserId,
+              onFilterChanged:
+                  (userId) => setState(() => _pastFilterUserId = userId),
+            ),
           ),
 
           // Created Tasks Tab
-          _buildFilterableTaskList(
-            context,
-            stream: _getCreatedStream(currentUser.id),
-            emptyMessage: 'No tasks created by you',
-            selectedUserId: _createdFilterUserId,
-            onFilterChanged:
-                (userId) => setState(() => _createdFilterUserId = userId),
+          Consumer<DataCacheProvider>(
+            builder: (context, cache, _) => _buildFilterableTaskList(
+              context,
+              stream: _getCreatedStream(currentUser.id),
+              initialData: cache.cachedCreatedTasks.isNotEmpty
+                  ? cache.cachedCreatedTasks
+                  : null,
+              emptyMessage: 'No tasks created by you',
+              selectedUserId: _createdFilterUserId,
+              onFilterChanged:
+                  (userId) => setState(() => _createdFilterUserId = userId),
+            ),
           ),
+
         ],
       ),
     );
@@ -396,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildFilterableTaskList(
     BuildContext context, {
     required Stream<List<TaskModel>> stream,
+    List<TaskModel>? initialData,
     required String emptyMessage,
     required String? selectedUserId,
     required ValueChanged<String?> onFilterChanged,
@@ -405,6 +422,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     return StreamBuilder<List<TaskModel>>(
       stream: stream,
+      initialData: initialData,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
@@ -548,10 +566,19 @@ class _HomeScreenState extends State<HomeScreen>
                           ? _buildEmptyState(context, 'No tasks match filter')
                           : RefreshIndicator(
                             onRefresh: () async {
-                              setState(() {});
-                              await Future.delayed(
-                                const Duration(milliseconds: 500),
-                              );
+                              // Clear the provider cache first so StreamBuilders
+                              // show a spinner (empty initialData) instead of
+                              // stale data while the new subscriptions load.
+                              context
+                                  .read<DataCacheProvider>()
+                                  .clearTaskCache();
+                              setState(() {
+                                // Null out cached streams so the lazy ??=
+                                // initializers recreate fresh subscriptions.
+                                _ongoingTasksStream = null;
+                                _pastTasksStream = null;
+                                _createdTasksStream = null;
+                              });
                             },
                             child: ListView.separated(
                               padding: const EdgeInsets.all(

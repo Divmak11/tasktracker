@@ -134,12 +134,20 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   }
 
   void _handleNotificationTap(NotificationModel notification) {
+    // Don't navigate to deleted tasks — the document no longer exists
+    if (notification.type == NotificationType.taskDeleted) {
+      if (!notification.isRead) {
+        _notificationRepository.markAsRead(notification.id);
+      }
+      return;
+    }
+
     // Navigate immediately - don't block on markAsRead
     if (notification.taskId != null) {
       context.push('/task/${notification.taskId}');
     }
 
-    // Mark as read in background (fire-and-forget)
+    // Mark as read in background
     if (!notification.isRead) {
       _notificationRepository.markAsRead(notification.id);
     }
@@ -324,7 +332,10 @@ class _NotificationCard extends StatelessWidget {
       case NotificationType.taskOverdue:
         return Icons.warning;
       case NotificationType.remark:
+      case NotificationType.remarkAdded:
         return Icons.comment;
+      case NotificationType.taskDeleted:
+        return Icons.delete_outline;
     }
   }
 
@@ -351,7 +362,10 @@ class _NotificationCard extends StatelessWidget {
       case NotificationType.taskOverdue:
         return Colors.red;
       case NotificationType.remark:
+      case NotificationType.remarkAdded:
         return Colors.teal;
+      case NotificationType.taskDeleted:
+        return Colors.red;
     }
   }
 
