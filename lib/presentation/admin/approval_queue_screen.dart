@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/user_model.dart';
+import '../../data/providers/data_cache_provider.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/cloud_functions_service.dart';
 import '../common/buttons/app_button.dart';
@@ -16,11 +18,44 @@ class ApprovalQueueScreen extends StatefulWidget {
 }
 
 class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
-  final NotificationService _notificationService = NotificationService();
   final CloudFunctionsService _cloudFunctions = CloudFunctionsService();
   final Set<String> _processingUsers = {};
 
   int _previousPendingCount = 0;
+
+  /// Called by Flutter whenever an inherited widget (including Provider) changes.
+  /// This is the correct lifecycle hook for reacting to provider changes
+  /// without placing side effects inside build().
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Use watch() to ensure didChangeDependencies is called when cache changes.
+    final cache = context.watch<DataCacheProvider>();
+    
+    // Guard: Don't show notifications during the very first load or if not loaded yet.
+    if (!cache.allUsersLoaded) return;
+
+    final newCount = cache.allUsers
+        .where((u) => u.status == UserStatus.pending)
+        .length;
+
+    if (newCount > _previousPendingCount && _previousPendingCount > 0 && mounted) {
+      final delta = newCount - _previousPendingCount;
+      // Schedule notification after the current frame so the widget tree is stable.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        NotificationService.showInAppNotification(
+          context,
+          title: 'New Approval Request${delta > 1 ? 's' : ''}',
+          message:
+              '$delta new user${delta > 1 ? 's' : ''} waiting for approval',
+          icon: Icons.notification_important,
+          backgroundColor: Colors.blue.shade700,
+        );
+      });
+    }
+    _previousPendingCount = newCount;
+  }
 
   Future<void> _handleApprove(UserModel user) async {
     final confirm = await showDialog<bool>(
@@ -110,7 +145,7 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
       // Add to processing set to prevent double-clicks
       setState(() => _processingUsers.add(user.id));
 
-      // OPTIMISTIC UPDATE: Show success immediately
+      // Show success immediately
       NotificationService.showInAppNotification(
         context,
         title: 'User Rejected',
@@ -156,44 +191,20 @@ class _ApprovalQueueScreenState extends State<ApprovalQueueScreen> {
         title: const Text('Approval Queue'),
         automaticallyImplyLeading: true,
       ),
-      body: StreamBuilder<List<UserModel>>(
-        stream: _notificationService.listenForNewPendingUsers(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text('Error: ${snapshot.error}'),
-                ],
-              ),
-            );
-          }
-
-          if (!snapshot.hasData) {
+      body: Consumer<DataCacheProvider>(
+        builder: (context, cache, _) {
+          // H1: Use allUsersLoaded (not allUsers.isEmpty) to distinguish
+          // "still loading" from "loaded but no users exist".
+          if (!cache.allUsersLoaded) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final pendingUsers = snapshot.data!;
+          final pendingUsers = cache.allUsers
+              .where((u) => u.status == UserStatus.pending)
+              .toList();
 
-          // Show notification if new pending users detected
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (pendingUsers.length > _previousPendingCount &&
-                _previousPendingCount > 0) {
-              final newCount = pendingUsers.length - _previousPendingCount;
-              NotificationService.showInAppNotification(
-                context,
-                title: 'New Approval Request${newCount > 1 ? 's' : ''}',
-                message:
-                    '$newCount new user${newCount > 1 ? 's' : ''} waiting for approval',
-                icon: Icons.notification_important,
-                backgroundColor: Colors.blue.shade700,
-              );
-            }
-            _previousPendingCount = pendingUsers.length;
-          });
+          // NOTE: Notification logic has been moved to didChangeDependencies()
+          // to avoid scheduling a callback on every single rebuild.
 
           if (pendingUsers.isEmpty) {
             return _buildEmptyState(theme);
