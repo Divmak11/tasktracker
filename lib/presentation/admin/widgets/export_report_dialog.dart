@@ -5,7 +5,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_theme.dart';
@@ -184,63 +183,16 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
     );
   }
 
-  Future<Directory> _getReportDirectory() async {
-    if (Platform.isAndroid) {
-      // Android 11+ (API 30+) enforces scoped storage.
-      // Permission.storage is a no-op on API 30+.
-      // We need Permission.manageExternalStorage for Downloads folder access.
-      final sdkInt = await _getAndroidSdkVersion();
 
-      if (sdkInt >= 30) {
-        // Android 11+: request MANAGE_EXTERNAL_STORAGE
-        var status = await Permission.manageExternalStorage.status;
-        if (!status.isGranted) {
-          status = await Permission.manageExternalStorage.request();
-        }
-        if (!status.isGranted) {
-          // Fallback: use app-scoped external directory (no permission needed)
-          final appDir = await getExternalStorageDirectory();
-          if (appDir != null) return appDir;
-          return await getApplicationDocumentsDirectory();
-        }
-      } else {
-        // Android 10 and below: classic storage permission
-        var status = await Permission.storage.status;
-        if (!status.isGranted) {
-          status = await Permission.storage.request();
-        }
-        if (!status.isGranted) {
-          return await getApplicationDocumentsDirectory();
-        }
-      }
-
-      // Try public Downloads folder
-      final downloadsDir = Directory('/storage/emulated/0/Download');
-      if (await downloadsDir.exists()) {
-        return downloadsDir;
-      }
-      // Fallback to path_provider's downloads directory
-      final dir = await getDownloadsDirectory();
-      if (dir != null) return dir;
-      // Last fallback to app documents
-      return await getApplicationDocumentsDirectory();
-    } else {
-      // iOS: Use documents directory
-      return await getApplicationDocumentsDirectory();
-    }
-  }
-
-  /// Get the Android SDK version (API level).
-  /// Returns 0 on non-Android platforms.
-  Future<int> _getAndroidSdkVersion() async {
+  /// Returns true if the device is running Android 11+ (API 30+).
+  Future<bool> _isAndroid11OrAbove() async {
+    if (!Platform.isAndroid) return false;
     try {
-      // Use the build.version.sdkInt from platform channels
-      // This is available without any additional dependencies
-      final version = await Process.run('getprop', ['ro.build.version.sdk']);
-      return int.tryParse(version.stdout.toString().trim()) ?? 0;
+      final result = await Process.run('getprop', ['ro.build.version.sdk']);
+      final sdk = int.tryParse(result.stdout.toString().trim()) ?? 0;
+      return sdk >= 30;
     } catch (_) {
-      // If getprop fails, assume modern Android (conservative)
-      return 33;
+      return true; // Conservative: assume modern Android
     }
   }
 
@@ -279,34 +231,51 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
       final dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final fileName = 'Task_Report_$dateStr.pdf';
 
-      // Get save directory (Todo: Manager folder)
-      final directory = await _getReportDirectory();
-      final filePath = '${directory.path}/$fileName';
-      final file = File(filePath);
+      // On Android 11+, use the share sheet (no MANAGE_EXTERNAL_STORAGE needed).
+      // On Android ≤10 and iOS, save directly to the documents/downloads folder.
+      final useShareSheet = await _isAndroid11OrAbove();
 
-      // Save file
-      await file.writeAsBytes(pdfBytes);
+      if (useShareSheet) {
+        // Write to app temp directory, then share
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = File('${tempDir.path}/$fileName');
+        await tempFile.writeAsBytes(pdfBytes);
 
-      if (!mounted) return;
+        if (!mounted) return;
+        Navigator.of(context).pop();
 
-      // Show download notification
-      await _showDownloadNotification(filePath, fileName);
+        await Share.shareXFiles(
+          [XFile(tempFile.path, mimeType: 'application/pdf')],
+          subject: fileName,
+          text: 'Task Report ($taskCount tasks)',
+        );
+      } else {
+        // Android ≤10 / iOS: save directly to documents directory
+        final dir = await getApplicationDocumentsDirectory();
+        final filePath = '${dir.path}/$fileName';
+        final file = File(filePath);
+        await file.writeAsBytes(pdfBytes);
 
-      // Close dialog and show success snackbar
-      Navigator.of(context).pop();
+        if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Report saved ($taskCount tasks)'),
-          backgroundColor: Colors.green,
-          action: SnackBarAction(
-            label: 'Open',
-            textColor: Colors.white,
-            onPressed: () => OpenFilex.open(filePath),
+        // Show download notification
+        await _showDownloadNotification(filePath, fileName);
+
+        Navigator.of(context).pop();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Report saved ($taskCount tasks)'),
+            backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: 'Open',
+              textColor: Colors.white,
+              onPressed: () => OpenFilex.open(filePath),
+            ),
+            duration: const Duration(seconds: 4),
           ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -357,7 +326,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
 
       // Use native share sheet
       await Share.shareXFiles(
-        [XFile(tempFile.path)],
+        [XFile(tempFile.path, mimeType: 'application/pdf')],
         subject: 'Task Report - $dateStr',
         text: 'Task Report with $taskCount tasks',
       );
