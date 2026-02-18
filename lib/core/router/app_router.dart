@@ -22,6 +22,7 @@ import '../../presentation/admin/overdue_tasks_screen.dart';
 import '../../presentation/admin/all_tasks_screen.dart';
 import '../../presentation/admin/user_task_summary_screen.dart';
 import '../../presentation/admin/team_admin_dashboard_screen.dart';
+import '../../presentation/admin/report_exempt_screen.dart';
 // HIDDEN: Import for disabled Invite Users module
 // import '../../presentation/admin/invite_users_screen.dart';
 import '../../presentation/approvals/reschedule_approval_screen.dart';
@@ -255,6 +256,17 @@ class AppRouter {
                 GoRoute(
                   path: '/admin/overdue-tasks',
                   builder: (context, state) => const OverdueTasksScreen(),
+                ),
+                GoRoute(
+                  path: AppRoutes.reportExemptUsers,
+                  redirect: (context, state) {
+                    final auth = authProvider;
+                    if (auth.currentUser?.role != UserRole.superAdmin) {
+                      return AppRoutes.home;
+                    }
+                    return null;
+                  },
+                  builder: (context, state) => const ReportExemptScreen(),
                 ),
                 GoRoute(
                   path: AppRoutes.allTasks,
