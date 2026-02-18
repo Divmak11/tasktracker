@@ -132,6 +132,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       Icons.summarize_outlined,
                       () => _showExportDialog(context),
                     ),
+                    const SizedBox(height: AppSpacing.md),
+
+                    _buildActionCard(
+                      context,
+                      'Report Exempt Users',
+                      'Manage users hidden from Team Admin reports',
+                      Icons.visibility_off_outlined,
+                      () => context.push(AppRoutes.reportExemptUsers),
+                    ),
                   ],
                 );
               },
