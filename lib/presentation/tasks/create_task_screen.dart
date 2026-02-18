@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_spacing.dart';
@@ -9,6 +11,7 @@ import '../../data/models/team_model.dart';
 import '../../data/repositories/team_repository.dart';
 import '../../data/services/notification_service.dart';
 import '../../data/services/cloud_functions_service.dart';
+import '../../data/services/storage_service.dart';
 import '../../data/providers/auth_provider.dart';
 import '../common/buttons/app_button.dart';
 import '../common/inputs/app_text_field.dart';
@@ -41,6 +44,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // For team selection (single)
   String? _selectedTeamId;
   bool _isLoading = false;
+  String _loadingMessage = '';
+
+  // Image attachments
+  final List<XFile> _pendingImages = [];
 
   @override
   void dispose() {
@@ -50,6 +57,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _pickDate() async {
+    FocusScope.of(context).unfocus();
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 1)),
@@ -57,15 +65,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked != null) {
-      // Unfocus to prevent focus return to description when self-assignment is selected
-      if (_assignmentType == AssignmentType.self) {
-        FocusScope.of(context).unfocus();
-      }
       setState(() => _selectedDate = picked);
     }
   }
 
   Future<void> _pickTime() async {
+    FocusScope.of(context).unfocus();
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
@@ -102,10 +107,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             return; // Don't set the time
           }
         }
-      }
-      // Unfocus to prevent focus return to description when self-assignment is selected
-      if (_assignmentType == AssignmentType.self) {
-        FocusScope.of(context).unfocus();
       }
       setState(() => _selectedTime = picked);
     }
@@ -190,11 +191,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final taskSubtitle = _subtitleController.text.trim();
 
       // Show loading state
-      setState(() => _isLoading = true);
+      setState(() {
+        _isLoading = true;
+        _loadingMessage = 'Creating task...';
+      });
 
       try {
-        // Wait for server response (no optimistic update)
-        await _cloudFunctions.assignTask(
+        final hasImages = _pendingImages.isNotEmpty;
+        final imageFiles = _pendingImages.map((xf) => File(xf.path)).toList();
+        final imageCount = _pendingImages.length;
+
+        // Step 1: Create the task
+        final result = await _cloudFunctions.assignTask(
           title: taskTitle,
           subtitle: taskSubtitle,
           assignedType: assignedTypeStr,
@@ -203,14 +211,62 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           supervisorIds: _supervisorIds.isNotEmpty ? _supervisorIds : null,
         );
 
+        final taskId = result['taskId'] as String?;
+
+        // Step 2: Upload images synchronously if any
+        if (hasImages && taskId != null && mounted) {
+          setState(() {
+            _loadingMessage = 'Uploading image 1 of $imageCount...';
+          });
+
+          try {
+            final urls = await StorageService.uploadAll(
+              taskId: taskId,
+              files: imageFiles,
+              onProgress: (completed, total) {
+                if (mounted) {
+                  setState(() {
+                    _loadingMessage = completed == total
+                        ? 'Finalizing...'
+                        : 'Uploading image ${completed + 1} of $total...';
+                  });
+                }
+              },
+            );
+
+            // Update task with attachment URLs
+            if (mounted) {
+              setState(() => _loadingMessage = 'Saving attachments...');
+            }
+            await _cloudFunctions.updateTask(
+              taskId: taskId,
+              attachmentUrls: urls,
+            );
+          } catch (uploadError) {
+            // Task was created but images failed — warn user but don't block
+            if (mounted) {
+              NotificationService.showInAppNotification(
+                context,
+                title: 'Images Failed',
+                message: 'Task created but image upload failed. You can retry from task details.',
+                icon: Icons.warning_amber_rounded,
+                backgroundColor: Colors.orange.shade700,
+              );
+            }
+          }
+        }
+
+        // Step 3: Show success and pop
         if (mounted) {
+          final message = _selectedAssignees.length > 1
+              ? 'Task assigned to ${_selectedAssignees.length} members'
+              : 'Task "$taskTitle" created successfully';
           NotificationService.showInAppNotification(
             context,
             title: 'Task Created',
-            message:
-                _selectedAssignees.length > 1
-                    ? 'Task assigned to ${_selectedAssignees.length} members'
-                    : 'Task "$taskTitle" created successfully',
+            message: hasImages
+                ? '$message with $imageCount attachment${imageCount > 1 ? 's' : ''}'
+                : message,
             icon: Icons.check_circle,
             backgroundColor: Colors.green.shade700,
           );
@@ -227,9 +283,25 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
       } finally {
         if (mounted) {
-          setState(() => _isLoading = false);
+          setState(() {
+            _isLoading = false;
+            _loadingMessage = '';
+          });
         }
       }
+    }
+  }
+
+  Future<void> _pickAttachmentImages() async {
+    FocusScope.of(context).unfocus();
+    final remaining = StorageService.maxAttachments - _pendingImages.length;
+    if (remaining <= 0) return;
+
+    final images = await StorageService.pickImages(remaining: remaining);
+    if (images.isNotEmpty && mounted) {
+      setState(() {
+        _pendingImages.addAll(images);
+      });
     }
   }
 
@@ -245,7 +317,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
+              child: GestureDetector(
+                onTap: () => FocusScope.of(context).unfocus(),
+                behavior: HitTestBehavior.translucent,
+                child: SingleChildScrollView(
                 padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
                 child: Form(
                   key: _formKey,
@@ -286,6 +361,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         controller: _subtitleController,
                         maxLines: 4,
                         maxLength: 500,
+                        textInputAction: TextInputAction.done,
                         suffixIcon: VoiceInputButton(
                           fieldName: 'Description',
                           controller: _subtitleController,
@@ -335,6 +411,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ],
                         selected: {_assignmentType},
                         onSelectionChanged: (Set<AssignmentType> newSelection) {
+                          FocusScope.of(context).unfocus();
                           setState(() {
                             _assignmentType = newSelection.first;
                             _selectedAssignees.clear();
@@ -467,19 +544,51 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           ),
                         ],
                       ),
+
+                      // Image Attachments Section
+                      const SizedBox(height: AppSpacing.lg),
+                      Text(
+                        'Attachments',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Add up to ${StorageService.maxAttachments} images',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: isDark ? AppColors.neutral500 : AppColors.neutral400,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _buildImageAttachmentArea(theme, isDark),
                     ],
                   ),
                 ),
+              ),
               ),
             ),
 
             // Bottom Action
             Padding(
               padding: const EdgeInsets.all(AppSpacing.screenPaddingMobile),
-              child: AppButton(
-                text: 'Create Task',
-                onPressed: _handleCreate,
-                isLoading: _isLoading,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isLoading && _loadingMessage.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                      child: Text(
+                        _loadingMessage,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  AppButton(
+                    text: 'Create Task',
+                    onPressed: _handleCreate,
+                    isLoading: _isLoading,
+                  ),
+                ],
               ),
             ),
           ],
@@ -495,7 +604,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       children: [
         // Tap area to open selection screen
         InkWell(
-          onTap: _openAssigneeSelector,
+          onTap: () {
+            FocusScope.of(context).unfocus();
+            _openAssigneeSelector();
+          },
           borderRadius: BorderRadius.circular(AppRadius.medium),
           child: Container(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -594,6 +706,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   /// Open the full-screen assignee selection
   Future<void> _openAssigneeSelector() async {
+    FocusScope.of(context).unfocus();
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
@@ -652,10 +765,106 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 return DropdownMenuItem(value: team.id, child: Text(team.name));
               }).toList(),
           onChanged: (value) {
+            FocusScope.of(context).unfocus();
             setState(() => _selectedTeamId = value);
           },
         );
       },
+    );
+  }
+
+  /// Build the image attachment area: thumbnails + add button
+  Widget _buildImageAttachmentArea(ThemeData theme, bool isDark) {
+    return SizedBox(
+      height: 100,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _pendingImages.length +
+            (_pendingImages.length < StorageService.maxAttachments ? 1 : 0),
+        separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, index) {
+          // Last item is the "add" button
+          if (index == _pendingImages.length) {
+            return _buildAddImageTile(theme, isDark);
+          }
+          return _buildImageThumbnail(index, theme, isDark);
+        },
+      ),
+    );
+  }
+
+  Widget _buildAddImageTile(ThemeData theme, bool isDark) {
+    return InkWell(
+      onTap: _pickAttachmentImages,
+      borderRadius: BorderRadius.circular(AppRadius.medium),
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.5),
+            width: 1.5,
+            strokeAlign: BorderSide.strokeAlignInside,
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          color: theme.colorScheme.primary.withValues(alpha: 0.05),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.add_photo_alternate_outlined,
+              color: theme.colorScheme.primary,
+              size: 28,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Add',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageThumbnail(int index, ThemeData theme, bool isDark) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          child: Image.file(
+            File(_pendingImages[index].path),
+            width: 100,
+            height: 100,
+            fit: BoxFit.cover,
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: GestureDetector(
+            onTap: () {
+              setState(() => _pendingImages.removeAt(index));
+            },
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close,
+                size: 16,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
