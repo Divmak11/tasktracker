@@ -161,6 +161,7 @@ class CloudFunctionsService {
   /// Assign a new task to a member, multiple members, or team
   /// [assignedTo] can be a single ID (String) or list of IDs (List<String>)
   /// [supervisorIds] optional list of user IDs who can see all assignees' status
+  /// [attachmentUrls] optional list of image attachment URLs (max 3)
   Future<Map<String, dynamic>> assignTask({
     required String title,
     required String subtitle,
@@ -168,6 +169,7 @@ class CloudFunctionsService {
     required dynamic assignedTo, // String or List<String>
     required DateTime deadline,
     List<String>? supervisorIds,
+    List<String>? attachmentUrls,
   }) async {
     return _callWithTimeout(() async {
       final callable = _functions.httpsCallable('assignTask');
@@ -179,17 +181,20 @@ class CloudFunctionsService {
         'deadline': deadline.toUtc().toIso8601String(),
         if (supervisorIds != null && supervisorIds.isNotEmpty)
           'supervisorIds': supervisorIds,
+        if (attachmentUrls != null && attachmentUrls.isNotEmpty)
+          'attachmentUrls': attachmentUrls,
       });
       return Map<String, dynamic>.from(result.data);
     }, 'assignTask');
   }
 
-  /// Update a task (title, subtitle, deadline)
+  /// Update a task (title, subtitle, deadline, attachmentUrls)
   Future<Map<String, dynamic>> updateTask({
     required String taskId,
     String? title,
     String? subtitle,
     DateTime? deadline,
+    List<String>? attachmentUrls,
   }) async {
     return _callWithTimeout(() async {
       final callable = _functions.httpsCallable('updateTask');
@@ -199,6 +204,7 @@ class CloudFunctionsService {
           if (title != null) 'title': title,
           if (subtitle != null) 'subtitle': subtitle,
           if (deadline != null) 'deadline': deadline.toUtc().toIso8601String(),
+          if (attachmentUrls != null) 'attachmentUrls': attachmentUrls,
         },
       });
       return Map<String, dynamic>.from(result.data);
@@ -412,7 +418,8 @@ class CloudFunctionsService {
     required DateTime endDate,
     String? teamId,
     String? status,
-    String? userId, // Add member filter
+    String? userId,
+    List<String>? memberIds,
   }) async {
     final callable = _functions.httpsCallable('exportReport');
     final result = await callable.call({
@@ -421,6 +428,7 @@ class CloudFunctionsService {
       if (teamId != null) 'teamId': teamId,
       if (status != null) 'status': status,
       if (userId != null) 'userId': userId,
+      if (memberIds != null) 'memberIds': memberIds,
     });
     return Map<String, dynamic>.from(result.data);
   }
@@ -453,5 +461,31 @@ class CloudFunctionsService {
       final result = await callable.call();
       return Map<String, dynamic>.from(result.data);
     }, 'reconnectCalendar', timeout: const Duration(seconds: 45));
+  }
+
+  // ============================================
+  // REPORT EXEMPT USER LIST
+  // ============================================
+
+  /// Update the list of users whose tasks are hidden from Team Admin reports.
+  /// Replaces the entire list atomically. Pass an empty list to clear.
+  Future<Map<String, dynamic>> updateReportExemptList(
+      List<String> userIds) async {
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('updateReportExemptList');
+      final result = await callable.call({'userIds': userIds});
+      return Map<String, dynamic>.from(result.data);
+    }, 'updateReportExemptList');
+  }
+
+  /// Get the current exempt user IDs list.
+  /// Returns an empty list if none are configured yet.
+  Future<List<String>> getReportExemptList() async {
+    return _callWithTimeout(() async {
+      final callable = _functions.httpsCallable('getReportExemptList');
+      final result = await callable.call();
+      final data = Map<String, dynamic>.from(result.data);
+      return List<String>.from(data['userIds'] ?? []);
+    }, 'getReportExemptList');
   }
 }
