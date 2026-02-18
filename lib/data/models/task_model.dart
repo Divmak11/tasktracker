@@ -52,6 +52,9 @@ class TaskModel {
   final List<String> supervisorIds;
   final String? sourceTeamId;
 
+  // Attachment URLs (max 3 images)
+  final List<String> attachmentUrls;
+
   TaskModel({
     required this.id,
     required this.title,
@@ -72,6 +75,8 @@ class TaskModel {
     this.assigneeIds = const [],
     this.supervisorIds = const [],
     this.sourceTeamId,
+    // Attachment URLs
+    this.attachmentUrls = const [],
   });
 
   factory TaskModel.fromJson(Map<String, dynamic> json, String id) {
@@ -105,6 +110,12 @@ class TaskModel {
               .toList() ??
           [],
       sourceTeamId: json['sourceTeamId'] as String?,
+      // Attachment URLs
+      attachmentUrls:
+          (json['attachmentUrls'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
     );
   }
 
@@ -132,6 +143,7 @@ class TaskModel {
       if (assigneeIds.isNotEmpty) 'assigneeIds': assigneeIds,
       if (supervisorIds.isNotEmpty) 'supervisorIds': supervisorIds,
       if (sourceTeamId != null) 'sourceTeamId': sourceTeamId,
+      if (attachmentUrls.isNotEmpty) 'attachmentUrls': attachmentUrls,
     };
   }
 
