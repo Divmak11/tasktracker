@@ -169,9 +169,9 @@ class TaskRepository {
     await _cloudFunctions.reopenTask(taskId, newDeadline);
   }
 
-  /// Delete task (hard delete - use sparingly)
+  /// Delete task via Cloud Function (cascading cleanup of assignments, attachments, etc.)
   Future<void> deleteTask(String taskId) async {
-    await _firestore.collection(_collection).doc(taskId).delete();
+    await _cloudFunctions.deleteTask(taskId);
   }
 
   /// Get overdue tasks for admin dashboard

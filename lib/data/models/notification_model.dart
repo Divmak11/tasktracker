@@ -11,13 +11,21 @@ enum NotificationType {
   userApproved,
   deadlineReminder,
   taskOverdue,
-  remark;
+  remark,
+  remarkAdded,
+  taskDeleted;
 
   String toJson() => name;
 
   static NotificationType fromJson(String value) {
+    // Backend sends snake_case (e.g. 'task_assigned'), convert to camelCase
+    // to match Dart enum names (e.g. 'taskAssigned')
+    final camelCase = value.replaceAllMapped(
+      RegExp(r'_([a-z])'),
+      (m) => m.group(1)!.toUpperCase(),
+    );
     return NotificationType.values.firstWhere(
-      (type) => type.name == value,
+      (type) => type.name == camelCase,
       orElse: () => NotificationType.taskAssigned,
     );
   }
