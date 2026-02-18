@@ -184,8 +184,10 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
   }
 
 
-  /// Returns true if the device is running Android 11+ (API 30+).
-  Future<bool> _isAndroid11OrAbove() async {
+  /// Returns true if the device should use the system share sheet for reports.
+  /// Used for Android 11+ and all iOS versions.
+  Future<bool> _shouldUseShareSheet() async {
+    if (Platform.isIOS) return true;
     if (!Platform.isAndroid) return false;
     try {
       final result = await Process.run('getprop', ['ro.build.version.sdk']);
@@ -231,9 +233,9 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
       final dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final fileName = 'Task_Report_$dateStr.pdf';
 
-      // On Android 11+, use the share sheet (no MANAGE_EXTERNAL_STORAGE needed).
-      // On Android ≤10 and iOS, save directly to the documents/downloads folder.
-      final useShareSheet = await _isAndroid11OrAbove();
+      // On Android 11+ and iOS, use the share sheet.
+      // On Android ≤10, save directly to the downloads/documents folder.
+      final useShareSheet = await _shouldUseShareSheet();
 
       if (useShareSheet) {
         // Write to app temp directory, then share
