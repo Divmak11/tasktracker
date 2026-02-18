@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/task_model.dart';
@@ -19,6 +20,7 @@ import '../common/buttons/app_button.dart';
 import 'widgets/add_remark_dialog.dart';
 import 'widgets/remark_item.dart';
 import 'widgets/reschedule_request_dialog.dart';
+import 'secure_image_viewer.dart';
 
 class TaskDetailScreen extends StatelessWidget {
   final String taskId;
@@ -224,6 +226,68 @@ class TaskDetailScreen extends StatelessWidget {
                                     ? AppColors.neutral300
                                     : AppColors.neutral700,
                             height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                      ],
+
+                      // Attachments Section
+                      if (task.attachmentUrls.isNotEmpty) ...[
+                        Text(
+                          'Attachments',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        SizedBox(
+                          height: 100,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: task.attachmentUrls.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
+                            itemBuilder: (context, index) {
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SecureImageViewer(
+                                        imageUrls: task.attachmentUrls,
+                                        initialIndex: index,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(AppRadius.medium),
+                                  child: CachedNetworkImage(
+                                    imageUrl: task.attachmentUrls[index],
+                                    width: 100,
+                                    height: 100,
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => Container(
+                                      width: 100,
+                                      height: 100,
+                                      color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+                                      child: const Center(
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
+                                      ),
+                                    ),
+                                    errorWidget: (_, __, ___) => Container(
+                                      width: 100,
+                                      height: 100,
+                                      color: isDark ? AppColors.neutral800 : AppColors.neutral200,
+                                      child: const Icon(Icons.broken_image_outlined, size: 24),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(height: AppSpacing.xl),
