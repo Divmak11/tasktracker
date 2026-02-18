@@ -252,7 +252,7 @@ class _ExportReportDialogState extends State<ExportReportDialog> {
           text: 'Task Report ($taskCount tasks)',
         );
       } else {
-        // Android ≤10 / iOS: save directly to documents directory
+        // Android ≤10 only: save directly to documents directory
         final dir = await getApplicationDocumentsDirectory();
         final filePath = '${dir.path}/$fileName';
         final file = File(filePath);
