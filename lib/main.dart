@@ -21,49 +21,38 @@ import 'data/services/update_check_service.dart';
 import 'presentation/common/dialogs/update_dialog.dart';
 
 void main() async {
-  print('🚀 [STEP 0] main() entered');
-  
   WidgetsFlutterBinding.ensureInitialized();
-  print('🚀 [STEP 1] WidgetsFlutterBinding.ensureInitialized() complete');
-
   // Load environment variables with error handling for iOS compatibility
   try {
-    print('🚀 [STEP 2] Loading .env file...');
     await dotenv.load(fileName: ".env");
-    debugPrint('[OK] [ENV] Environment file loaded successfully');
+    debugPrint('Environment: loaded .env successfully');
   } catch (e) {
-    debugPrint('[WARN] [ENV] Could not load .env file: $e');
-    debugPrint('[WARN] [ENV] Using default environment variables');
+    debugPrint('Environment: could not load .env file: $e');
+    debugPrint('Environment: using default variables');
   }
-  print('🚀 [STEP 3] .env loading complete');
 
-  print('🚀 [STEP 4] Setting up FlutterError handler...');
   // Set up global error handlers
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     // Only print detailed error info in development mode
     if (!EnvConfig.isProduction) {
-      debugPrint('[RED] Flutter Error: ${details.exception}');
+      debugPrint('Flutter Error: ${details.exception}');
       debugPrint('Stack trace: ${details.stack}');
     }
     // In production, you could send this to a crash reporting service like Crashlytics
   };
 
-  print('🚀 [STEP 5] Starting Firebase initialization...');
   // Initialize Firebase with error handling
   try {
-    debugPrint('[FIRE] [FIREBASE] Starting Firebase initialization...');
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    debugPrint('[OK] [FIREBASE] Firebase.initializeApp() completed successfully');
+    debugPrint('Firebase: initialized successfully');
   } catch (e, stackTrace) {
-    debugPrint('[ERROR] [FIREBASE] CRITICAL ERROR during Firebase.initializeApp()!');
-    debugPrint('[ERROR] [FIREBASE] Error: $e');
-    debugPrint('[ERROR] [FIREBASE] Stack: $stackTrace');
+    debugPrint('Firebase: CRITICAL ERROR during initialization!');
+    debugPrint('Error: $e');
+    debugPrint('Stack: $stackTrace');
     rethrow; // Re-throw to show in console
   }
-  print('🚀 [STEP 6] Firebase initialized');
 
-  print('🚀 [STEP 7] Initializing Firebase Analytics...');
   // Initialize Firebase Analytics with error handling
   try {
     final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
@@ -80,14 +69,13 @@ void main() async {
       parameters: {'timestamp': DateTime.now().toIso8601String()},
     );
     
-    debugPrint('[OK] [FIREBASE] Analytics initialized successfully');
+    debugPrint('Firebase: Analytics initialized');
     if (!EnvConfig.isProduction) {
-      debugPrint('[CHART] Analytics Instance ID: ${analytics.app.name}');
+      debugPrint('Analytics: Instance ID: ${analytics.app.name}');
     }
   } catch (e) {
-    debugPrint('[WARN] [FIREBASE] Analytics initialization failed: $e');
+    debugPrint('Firebase: Analytics initialization failed: $e');
   }
-  print('🚀 [STEP 8] Analytics done');
 
   // Note: Firebase Auth persistence is automatically enabled on mobile platforms
   // setPersistence() is only supported on web and will throw UnimplementedError on mobile
@@ -97,11 +85,11 @@ void main() async {
   try {
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      cacheSizeBytes: 50 * 1024 * 1024, // 50 MB cap (prevent unbounded growth)
     );
-    debugPrint('[OK] [FIRESTORE] Persistence settings configured');
+    debugPrint('Firestore: persistence settings configured');
   } catch (e) {
-    debugPrint('[WARN] [FIRESTORE] Could not configure persistence: $e');
+    debugPrint('Firestore: could not configure persistence: $e');
     // Continue with default settings
   }
 
@@ -112,9 +100,9 @@ void main() async {
       badge: true,
       sound: true,
     );
-    debugPrint('[OK] [FCM] Notification permissions requested');
+    debugPrint('FCM: notification permissions requested');
   } catch (e) {
-    debugPrint('[WARN] [FCM] Failed to request notification permissions: $e');
+    debugPrint('FCM: failed to request notification permissions: $e');
     // Continue with app launch - permissions can be requested later
   }
 
@@ -122,14 +110,14 @@ void main() async {
   try {
     final micStatus = await Permission.microphone.request();
     if (micStatus.isGranted) {
-      debugPrint('[OK] [MIC] Microphone permission granted');
+      debugPrint('Microphone: permission granted');
     } else if (micStatus.isDenied) {
-      debugPrint('[WARN] [MIC] Microphone permission denied - voice input will prompt user to enable in settings');
+      debugPrint('Microphone: permission denied');
     } else if (micStatus.isPermanentlyDenied) {
-      debugPrint('[WARN] [MIC] Microphone permission permanently denied - user must enable in device settings');
+      debugPrint('Microphone: permission permanently denied');
     }
   } catch (e) {
-    debugPrint('[WARN] [MIC] Failed to request microphone permission: $e');
+    debugPrint('Microphone: failed to request permission: $e');
     // Continue with app launch - voice input will handle gracefully
   }
 
@@ -151,9 +139,9 @@ void main() async {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
-    debugPrint('[OK] Android notification channel created with sound enabled');
+    debugPrint('Notifications: Android channel created');
   } catch (e) {
-    debugPrint('[WARN] Failed to create Android notification channel: $e');
+    debugPrint('Notifications: failed to create Android channel: $e');
     // Continue - this is Android-specific and may fail on iOS
   }
 
@@ -164,25 +152,22 @@ void main() async {
       final updateService = UpdateCheckService();
       await updateService.initialize();
       // Check will be triggered on first app screen (delegated to app)
-      debugPrint('[OK] Update check service initialized');
+      debugPrint('UpdateService: initialized');
     } catch (e) {
-      debugPrint('[WARN] Failed to initialize update service: $e');
+      debugPrint('UpdateService: failed to initialize: $e');
       // Continue with app launch even if update check fails
     }
   });
 
-  print('🚀 [STEP 9] Initializing ThemeProvider...');
   // Initialize Theme
   final themeProvider = ThemeProvider();
   try {
     await themeProvider.initialize();
-    debugPrint('[OK] Theme provider initialized');
+    debugPrint('Theme: provider initialized');
   } catch (e) {
-    debugPrint('[WARN] Failed to initialize theme provider: $e');
+    debugPrint('Theme: failed to initialize provider: $e');
     // App will continue with default theme
   }
-
-  print('🚀 [STEP 10] Calling runApp()...');
 
   runApp(MyApp(themeProvider: themeProvider));
 }
@@ -234,7 +219,7 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[WARN] Error checking for updates in MyApp: $e');
+        debugPrint('UpdateService: error checking for updates: $e');
       }
       // Silently fail - don't disrupt user experience
     }
