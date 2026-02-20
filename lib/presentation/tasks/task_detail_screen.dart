@@ -19,6 +19,7 @@ import '../../data/services/cloud_functions_service.dart';
 import '../common/buttons/app_button.dart';
 import 'widgets/add_remark_dialog.dart';
 import 'widgets/remark_item.dart';
+import 'widgets/reschedule_history_widget.dart';
 import 'widgets/reschedule_request_dialog.dart';
 import 'secure_image_viewer.dart';
 
@@ -693,6 +694,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                         ),
                         const SizedBox(height: AppSpacing.lg),
                       ],
+
+                      // Reschedule History Section
+                      // Self-contained widget: hides itself when count == 0.
+                      RescheduleHistoryWidget(taskId: taskId),
+                      const SizedBox(height: AppSpacing.lg),
 
                       // Remarks Section
                       Row(

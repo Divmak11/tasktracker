@@ -58,3 +58,6 @@ firebase_options.dart
 key.properties
 **/*.jks
 **/*.keystore
+
+# Local AI Agent Rules (Private)
+.agent/

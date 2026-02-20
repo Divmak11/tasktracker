@@ -81,7 +81,15 @@ class UpdateCheckService {
 
       await _remoteConfig.setConfigSettings(RemoteConfigSettings(
         fetchTimeout: const Duration(seconds: 10),
-        minimumFetchInterval: const Duration(hours: 1),
+        // In debug mode: Duration.zero so every launch fetches fresh config
+        // from the Firebase RC server. This is the Firebase-recommended pattern
+        // for development — it allows force_update flag changes to be picked up
+        // immediately without waiting for the cache TTL to expire.
+        //
+        // In production: 1 h interval prevents excessive RC server calls.
+        // Forced updates in prod take effect within 1 h of publish — acceptable.
+        minimumFetchInterval:
+            kDebugMode ? Duration.zero : const Duration(hours: 1),
       ));
 
       await _remoteConfig.setDefaults(_defaults);
@@ -103,15 +111,22 @@ class UpdateCheckService {
     }
   }
 
-  /// Check for app updates
-  /// 
-  /// Returns an UpdateInfo object if an update is available and should be shown,
-  /// null otherwise.
-  /// 
-  /// Handles:
-  /// - 24h cooldown between checks
-  /// - Dismissal tracking for optional updates
-  /// - Version comparison
+  /// Check for app updates.
+  ///
+  /// Returns an [UpdateInfo] object if an update is available and should be
+  /// shown, null otherwise.
+  ///
+  /// Flow:
+  /// 1. Always fetch Remote Config so we see the latest force_update flag.
+  ///    Firebase enforces its own rate limit via [minimumFetchInterval] (1 h),
+  ///    so this is safe to call on every launch.
+  /// 2. Compare versions. If no update needed, return null.
+  /// 3. If forced → always show (bypasses cooldown + dismissal tracking).
+  /// 4. If optional → apply 24 h cooldown + dismissal tracking.
+  ///
+  /// This ordering is critical: the cooldown must NOT gate the fetch, because
+  /// a Remote Config change from force_update=false → force_update=true would
+  /// never be seen until 24 h expired under the old ordering.
   Future<UpdateInfo?> checkForUpdates() async {
     if (_isCheckingForUpdates) {
       if (kDebugMode) debugPrint('Update check already in progress, skipping');
@@ -125,49 +140,63 @@ class UpdateCheckService {
         await initialize();
       }
 
-      // Check if enough time has passed since last check
-      if (!await _shouldCheckForUpdates()) {
-        if (kDebugMode) debugPrint('Update check cooldown active, skipping');
-        return null;
-      }
-
-      // Fetch and activate Remote Config
+      // ── Step 1: Always fetch the latest Remote Config. ─────────────────────
+      // Firebase caches the result and only hits the network when
+      // minimumFetchInterval (1 h) has elapsed, so this is cheap on repeat
+      // launches within the same hour.
       await _fetchRemoteConfig();
 
-      // Update last check timestamp
-      await _updateLastCheckTimestamp();
-
-      // Compare versions
+      // ── Step 2: Version comparison. ─────────────────────────────────────────
       final latestVer = latestVersion;
       final currentVer = currentVersion;
 
+      if (kDebugMode) {
         debugPrint('Version check: current=$currentVer, latest=$latestVer');
+      }
 
       if (!_shouldUpdate(currentVer, latestVer)) {
         if (kDebugMode) debugPrint('App is up to date');
         return null;
       }
 
-      // Update is available
       final isForced = isForceUpdate;
 
       if (kDebugMode) {
         debugPrint('Update available: $latestVer (forced: $isForced)');
       }
 
-      // For optional updates, check dismissal
-      if (!isForced && !await _shouldShowAfterDismissal(latestVer)) {
-        if (kDebugMode) {
-          debugPrint('Optional update dismissed recently, skipping');
-        }
+      // ── Step 3: Forced update → always show. ────────────────────────────────
+      // Bypass the 24 h cooldown and any dismissal record entirely.
+      // The admin set force_update=true precisely to override user decisions.
+      if (isForced) {
+        return UpdateInfo(
+          currentVersion: currentVer,
+          latestVersion: latestVer,
+          isForced: true,
+          title: updateTitle,
+          message: updateMessage,
+          storeUrl: storeUrl,
+        );
+      }
+
+      // ── Step 4: Optional update → apply cooldown + dismissal tracking. ──────
+      if (!await _shouldCheckForUpdates()) {
+        if (kDebugMode) debugPrint('Optional update: 24 h cooldown active, skipping');
         return null;
       }
 
-      // Return update info
+      // Record that we consumed this optional-check slot.
+      await _updateLastCheckTimestamp();
+
+      if (!await _shouldShowAfterDismissal(latestVer)) {
+        if (kDebugMode) debugPrint('Optional update dismissed recently, skipping');
+        return null;
+      }
+
       return UpdateInfo(
         currentVersion: currentVer,
         latestVersion: latestVer,
-        isForced: isForced,
+        isForced: false,
         title: updateTitle,
         message: updateMessage,
         storeUrl: storeUrl,
@@ -176,11 +205,12 @@ class UpdateCheckService {
       if (kDebugMode) {
         debugPrint('Error checking for updates: $e');
       }
-      return null; // Graceful degradation
+      return null; // Graceful degradation — never block app launch
     } finally {
       _isCheckingForUpdates = false;
     }
   }
+
 
   /// Fetch and activate Remote Config
   Future<void> _fetchRemoteConfig() async {

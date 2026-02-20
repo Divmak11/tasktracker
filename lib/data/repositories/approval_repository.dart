@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/approval_request_model.dart';
 import '../models/reschedule_log_model.dart';
 import '../services/cloud_functions_service.dart';
@@ -66,6 +67,43 @@ class ApprovalRepository {
                     snapshot.docs.first.id,
                   )
                   : null,
+        );
+  }
+
+  /// Get ALL reschedule requests for a specific task (all statuses), ordered by newest first.
+  /// Used to display full reschedule history to task participants.
+  ///
+  /// FIRESTORE INDEX REQUIRED:
+  ///   Collection: approvalRequests
+  ///   Fields: type ASC, targetId ASC, createdAt DESC
+  ///
+  /// SECURITY: Backend Firestore rules must allow task assignees to read
+  /// approvalRequests docs where targetId matches their assigned task.
+  Stream<List<ApprovalRequestModel>> getTaskRescheduleHistoryStream(
+    String taskId,
+  ) {
+    return _firestore
+        .collection(_approvalCollection)
+        .where('type', isEqualTo: 'reschedule')
+        .where('targetId', isEqualTo: taskId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .handleError((Object error) {
+          // Gracefully handle missing Firestore composite index (failed-precondition)
+          // or insufficient permissions. History section shows empty state.
+          debugPrint(
+            '[ApprovalRepository] getTaskRescheduleHistoryStream '
+            'error for task $taskId: $error',
+          );
+        })
+        .map(
+          (snapshot) =>
+              snapshot.docs
+                  .map(
+                    (doc) =>
+                        ApprovalRequestModel.fromJson(doc.data(), doc.id),
+                  )
+                  .toList(),
         );
   }
 

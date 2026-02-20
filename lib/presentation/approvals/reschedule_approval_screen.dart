@@ -145,6 +145,18 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
   final _approvalRepository = ApprovalRepository();
   bool _isProcessing = false;
 
+  // Past reschedule history (all prior requests, excluding the current one)
+  late final Stream<List<ApprovalRequestModel>> _historyStream;
+  bool _isHistoryExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _historyStream = _approvalRepository.getTaskRescheduleHistoryStream(
+      widget.request.targetId,
+    );
+  }
+
   Future<void> _handleApprove() async {
     // Set processing to prevent double-clicks
     setState(() => _isProcessing = true);
@@ -438,6 +450,247 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
               ),
             ],
 
+            const SizedBox(height: AppSpacing.md),
+
+            // Past Reschedule History (all prior requests excluding current)
+            StreamBuilder<List<ApprovalRequestModel>>(
+              stream: _historyStream,
+              builder: (context, historySnapshot) {
+                if (!historySnapshot.hasData) return const SizedBox.shrink();
+
+                // Exclude the current request from the past history list
+                final pastEntries = historySnapshot.data!
+                    .where((r) => r.id != widget.request.id)
+                    .toList();
+
+                if (pastEntries.isEmpty) return const SizedBox.shrink();
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Divider(
+                      color:
+                          isDark ? AppColors.neutral700 : AppColors.neutral200,
+                    ),
+                    // Header row: count badge + expand toggle
+                    GestureDetector(
+                      onTap: () => setState(
+                        () => _isHistoryExpanded = !_isHistoryExpanded,
+                      ),
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.sm,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.history,
+                              size: 16,
+                              color: isDark
+                                  ? AppColors.neutral400
+                                  : AppColors.neutral600,
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            Text(
+                              'Past reschedules',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? AppColors.neutral400
+                                    : AppColors.neutral600,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.xs),
+                            // Count badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.15),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.full),
+                              ),
+                              child: Text(
+                                '${pastEntries.length}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade700,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            AnimatedRotation(
+                              turns: _isHistoryExpanded ? 0.5 : 0.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: Icon(
+                                Icons.expand_more,
+                                size: 18,
+                                color: isDark
+                                    ? AppColors.neutral400
+                                    : AppColors.neutral600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Expandable history list
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeInOut,
+                      child: _isHistoryExpanded
+                          ? Container(
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? AppColors.neutral900
+                                    : AppColors.neutral50,
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.small),
+                                border: Border.all(
+                                  color: isDark
+                                      ? AppColors.neutral800
+                                      : AppColors.neutral200,
+                                ),
+                              ),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: pastEntries.length,
+                                separatorBuilder: (_, __) => Divider(
+                                  height: 1,
+                                  color: isDark
+                                      ? AppColors.neutral800
+                                      : AppColors.neutral200,
+                                ),
+                                itemBuilder: (context, index) {
+                                  final entry = pastEntries[index];
+                                  final statusColor = _statusColor(entry.status);
+                                  return Padding(
+                                    padding: const EdgeInsets.all(AppSpacing.sm),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            _buildStatusPill(
+                                              entry.status,
+                                              statusColor,
+                                            ),
+                                            const Spacer(),
+                                            if (entry.createdAt != null)
+                                              Text(
+                                                _formatTimeAgo(entry.createdAt!),
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(fontSize: 11),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Was',
+                                                    style: theme
+                                                        .textTheme.bodySmall
+                                                        ?.copyWith(
+                                                          fontSize: 10,
+                                                          color: isDark
+                                                              ? AppColors
+                                                                    .neutral500
+                                                              : AppColors
+                                                                    .neutral500,
+                                                        ),
+                                                  ),
+                                                  Text(
+                                                    entry.originalDeadline !=
+                                                            null
+                                                        ? DateFormat(
+                                                            'MMM d, h:mm a',
+                                                          ).format(
+                                                            entry
+                                                                .originalDeadline!,
+                                                          )
+                                                        : 'N/A',
+                                                    style: theme
+                                                        .textTheme.bodySmall
+                                                        ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          fontSize: 12,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Icon(
+                                              Icons.arrow_forward,
+                                              size: 12,
+                                              color: isDark
+                                                  ? AppColors.neutral500
+                                                  : AppColors.neutral400,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.end,
+                                                children: [
+                                                  Text(
+                                                    'Requested',
+                                                    style: theme
+                                                        .textTheme.bodySmall
+                                                        ?.copyWith(
+                                                          fontSize: 10,
+                                                          color: theme
+                                                              .colorScheme
+                                                              .primary,
+                                                        ),
+                                                  ),
+                                                  Text(
+                                                    entry.newDeadline != null
+                                                        ? DateFormat(
+                                                            'MMM d, h:mm a',
+                                                          ).format(
+                                                            entry.newDeadline!,
+                                                          )
+                                                        : 'N/A',
+                                                    style: theme
+                                                        .textTheme.bodySmall
+                                                        ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          fontSize: 12,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                );
+              },
+            ),
+
             const SizedBox(height: AppSpacing.lg),
 
             // Action Buttons
@@ -472,6 +725,60 @@ class _RescheduleRequestCardState extends State<_RescheduleRequestCard> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Color _statusColor(ApprovalRequestStatus status) {
+    switch (status) {
+      case ApprovalRequestStatus.pending:
+        return Colors.orange;
+      case ApprovalRequestStatus.approved:
+        return Colors.green;
+      case ApprovalRequestStatus.rejected:
+        return Colors.red;
+    }
+  }
+
+  Widget _buildStatusPill(ApprovalRequestStatus status, Color color) {
+    String text;
+    IconData icon;
+    switch (status) {
+      case ApprovalRequestStatus.pending:
+        text = 'Pending';
+        icon = Icons.schedule;
+        break;
+      case ApprovalRequestStatus.approved:
+        text = 'Approved';
+        icon = Icons.check_circle_outline;
+        break;
+      case ApprovalRequestStatus.rejected:
+        text = 'Rejected';
+        icon = Icons.cancel_outlined;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(AppRadius.small),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
+            ),
+          ),
+        ],
       ),
     );
   }

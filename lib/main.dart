@@ -197,44 +197,63 @@ class _MyAppState extends State<MyApp> {
     _analyticsObserver = FirebaseAnalyticsObserver(analytics: _analytics);
     _router = AppRouter.createRouter(_authProvider);
     
-    // Check for app updates after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Check for app updates after first frame.
+    // We yield once (Future.delayed(Duration.zero)) so GoRouter's Navigator
+    // completes rendering its first route before we attempt showDialog.
+    // Without this yield, the Navigator may not yet have a valid overlay,
+    // causing showDialog to silently fail or throw.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(Duration.zero);
       _checkForUpdates();
     });
   }
 
-  /// Check for app updates and show dialog if needed
+  /// Check for app updates and show dialog if needed.
+  ///
+  /// Context is resolved from the GoRouter navigator key AFTER the async
+  /// update check completes, so we never use a stale pre-await BuildContext.
   Future<void> _checkForUpdates() async {
     try {
       final updateService = UpdateCheckService();
       final updateInfo = await updateService.checkForUpdates();
-      
-      if (updateInfo != null && mounted) {
-        // Show appropriate dialog based on update type
-        if (updateInfo.isForced) {
-          _showForcedUpdateDialog(updateInfo);
-        } else {
-          _showOptionalUpdateDialog(updateInfo);
-        }
+
+      if (updateInfo == null) return;
+
+      // Resolve context from the GoRouter NavigatorState key.
+      // This is always the correct Navigator context regardless of the current
+      // route. _MyAppState.context does NOT have a Navigator above it and
+      // cannot be used with showDialog.
+      final navContext = _router.routerDelegate.navigatorKey.currentContext;
+      if (navContext == null || !navContext.mounted) return;
+
+      if (updateInfo.isForced) {
+        _showForcedUpdateDialog(navContext, updateInfo);
+      } else {
+        _showOptionalUpdateDialog(navContext, updateInfo);
       }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('UpdateService: error checking for updates: $e');
       }
-      // Silently fail - don't disrupt user experience
+      // Silently fail — don't disrupt user experience
     }
   }
 
-  /// Show forced update dialog (non-dismissible)
-  void _showForcedUpdateDialog(UpdateInfo updateInfo) {
+  /// Show forced update dialog (non-dismissible).
+  ///
+  /// Accepts explicit [context] resolved from the GoRouter navigator key
+  /// to ensure the dialog is shown on a valid Navigator overlay.
+  void _showForcedUpdateDialog(BuildContext context, UpdateInfo updateInfo) {
     UpdateDialog.showForcedUpdate(
       context: context,
       title: updateInfo.title,
       message: updateInfo.message,
       onUpdate: () async {
+        final navContext = _router.routerDelegate.navigatorKey.currentContext;
+        if (navContext == null) return;
         final success = await UpdateCheckService().openStore();
-        if (!success && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+        if (!success && navContext.mounted) {
+          ScaffoldMessenger.of(navContext).showSnackBar(
             const SnackBar(
               content: Text('Unable to open store. Please update manually.'),
               behavior: SnackBarBehavior.floating,
@@ -245,17 +264,22 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  /// Show optional update dialog (dismissible)
-  void _showOptionalUpdateDialog(UpdateInfo updateInfo) {
+  /// Show optional update dialog (dismissible).
+  ///
+  /// Accepts explicit [context] resolved from the GoRouter navigator key
+  /// to ensure the dialog is shown on a valid Navigator overlay.
+  void _showOptionalUpdateDialog(BuildContext context, UpdateInfo updateInfo) {
     UpdateDialog.showOptionalUpdate(
       context: context,
       title: updateInfo.title,
       message: updateInfo.message,
       onUpdate: () async {
         Navigator.of(context).pop(); // Close dialog first
+        final navContext = _router.routerDelegate.navigatorKey.currentContext;
+        if (navContext == null) return;
         final success = await UpdateCheckService().openStore();
-        if (!success && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+        if (!success && navContext.mounted) {
+          ScaffoldMessenger.of(navContext).showSnackBar(
             const SnackBar(
               content: Text('Unable to open store. Please update manually.'),
               behavior: SnackBarBehavior.floating,
